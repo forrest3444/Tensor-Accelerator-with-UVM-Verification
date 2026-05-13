@@ -1,0 +1,29 @@
+# Local agent/session metadata
+.agents/
+.codex/
+
+# Simulator/build outputs
+tb/sim/csrc/
+tb/sim/sim/
+tb/sim/DVEfiles/
+tb/sim/verdiLog/
+tb/sim/urgReport/
+tb/sim/novas.*
+tb/sim/inter.vpd
+tb/sim/*.vpd
+tb/sim/*.fsdb
+tb/sim/*.vdb
+tb/sim/*.log
+tb/sim/ucli.key
+tb/sim/vc_hdrs.h
+tb/sim/env.*.xml
+
+# Common generated EDA artifacts
+csrc/
+*.daidir/
+*.vdb/
+*.fsdb
+*.vpd
+*.log
+vc_hdrs.h
+ucli.key

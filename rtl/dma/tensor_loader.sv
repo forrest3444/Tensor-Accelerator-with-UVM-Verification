@@ -1,0 +1,63 @@
+`timescale 1ns/1ps
+
+module tensor_loader (
+  input  logic clk,
+  input  logic rst_n,
+  input  logic start_i,
+  input  logic [31:0] ext_addr_i,
+  input  logic [31:0] byte_len_i,
+  input  logic [15:0] spad_offset_i,
+  output logic busy_o,
+  output logic done_o,
+  output logic error_o,
+  output logic cross_4kb_o,
+
+  output logic [31:0] m_axi_araddr,
+  output logic [7:0]  m_axi_arlen,
+  output logic [2:0]  m_axi_arsize,
+  output logic [1:0]  m_axi_arburst,
+  output logic        m_axi_arvalid,
+  input  logic        m_axi_arready,
+  input  logic [63:0] m_axi_rdata,
+  input  logic [1:0]  m_axi_rresp,
+  input  logic        m_axi_rlast,
+  input  logic        m_axi_rvalid,
+  output logic        m_axi_rready,
+
+  output logic        spad_req_o,
+  output logic        spad_we_o,
+  output logic [15:0] spad_addr_o,
+  output logic [31:0] spad_wdata_o,
+  output logic [3:0]  spad_wstrb_o,
+  input  logic        spad_ready_i
+);
+  axi_read_dma u_axi_read_dma (
+    .clk(clk),
+    .rst_n(rst_n),
+    .start_i(start_i),
+    .addr_i(ext_addr_i),
+    .byte_len_i(byte_len_i),
+    .spad_offset_i(spad_offset_i),
+    .busy_o(busy_o),
+    .done_o(done_o),
+    .error_o(error_o),
+    .cross_4kb_o(cross_4kb_o),
+    .m_axi_araddr(m_axi_araddr),
+    .m_axi_arlen(m_axi_arlen),
+    .m_axi_arsize(m_axi_arsize),
+    .m_axi_arburst(m_axi_arburst),
+    .m_axi_arvalid(m_axi_arvalid),
+    .m_axi_arready(m_axi_arready),
+    .m_axi_rdata(m_axi_rdata),
+    .m_axi_rresp(m_axi_rresp),
+    .m_axi_rlast(m_axi_rlast),
+    .m_axi_rvalid(m_axi_rvalid),
+    .m_axi_rready(m_axi_rready),
+    .spad_req_o(spad_req_o),
+    .spad_we_o(spad_we_o),
+    .spad_addr_o(spad_addr_o),
+    .spad_wdata_o(spad_wdata_o),
+    .spad_wstrb_o(spad_wstrb_o),
+    .spad_ready_i(spad_ready_i)
+  );
+endmodule
