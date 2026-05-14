@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 package tensor_accel_env_pkg;
   import uvm_pkg::*;
   `include "uvm_macros.svh"
@@ -7,6 +5,7 @@ package tensor_accel_env_pkg;
   import svt_axi_uvm_pkg::*;
   import tensor_pkg::*;
   import tensor_accel_tb_cfg_pkg::*;
+  import tensor_accel_reg_pkg::*;
 
   `include "tensor_accel_matrix_item.sv"
   `include "tensor_accel_ref_model.sv"

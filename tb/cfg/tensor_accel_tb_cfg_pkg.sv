@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 package tensor_accel_tb_cfg_pkg;
   import uvm_pkg::*;
   `include "uvm_macros.svh"
@@ -56,7 +54,7 @@ package tensor_accel_tb_cfg_pkg;
 
       axi_sys_cfg.num_masters = 1;
       axi_sys_cfg.num_slaves = 1;
-      axi_sys_cfg.system_monitor_enable = 1;
+      axi_sys_cfg.system_monitor_enable = 0;
       axi_sys_cfg.create_sub_cfgs(axi_sys_cfg.num_masters, axi_sys_cfg.num_slaves);
 
       configure_axil_master(axi_sys_cfg.master_cfg[AXIL_MASTER_ID]);
@@ -118,6 +116,7 @@ package tensor_accel_tb_cfg_pkg;
     virtual tensor_accel_dut_if vif;
     virtual svt_axi_master_if   axil_master_vif;
     virtual svt_axi_slave_if    axi_slave_vif;
+    svt_axi_mem_system_backdoor axi_slave_mem_bkdr;
 
     int unsigned seq_check_count;
     int unsigned seq_check_error;
@@ -232,6 +231,18 @@ package tensor_accel_tb_cfg_pkg;
 
     virtual function void add_scb_check_error(int unsigned val = 1);
       scb_check_error += val;
+    endfunction
+
+    virtual function void set_axi_slave_mem_bkdr(svt_axi_mem_system_backdoor bkdr);
+      axi_slave_mem_bkdr = bkdr;
+    endfunction
+
+    virtual function svt_axi_mem_system_backdoor get_axi_slave_mem_bkdr();
+      return axi_slave_mem_bkdr;
+    endfunction
+
+    virtual function bit has_axi_slave_mem_bkdr();
+      return axi_slave_mem_bkdr != null;
     endfunction
   endclass
 endpackage

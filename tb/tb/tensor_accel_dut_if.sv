@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 interface tensor_accel_dut_if(input logic clk);
   logic rst_n;
   logic irq;

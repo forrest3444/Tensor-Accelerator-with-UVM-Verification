@@ -1,8 +1,6 @@
-`timescale 1ns/1ps
-
-import tensor_pkg::*;
-
-module dma_descriptor_fifo #(
+module dma_descriptor_fifo
+  import tensor_pkg::*;
+#(
   parameter int DEPTH = 2
 ) (
   input  logic clk,

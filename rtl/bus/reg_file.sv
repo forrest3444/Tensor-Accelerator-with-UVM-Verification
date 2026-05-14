@@ -1,8 +1,6 @@
-`timescale 1ns/1ps
-
-import tensor_pkg::*;
-
-module reg_file (
+module reg_file
+  import tensor_pkg::*;
+(
   input  logic clk,
   input  logic rst_n,
   input  logic wr_en_i,

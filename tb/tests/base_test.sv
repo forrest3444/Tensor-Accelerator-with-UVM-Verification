@@ -1,13 +1,6 @@
 `ifndef TENSOR_ACCEL_BASE_TEST_SV
 `define TENSOR_ACCEL_BASE_TEST_SV
 
-import uvm_pkg::*;
-`include "uvm_macros.svh"
-import svt_axi_uvm_pkg::*;
-import tensor_accel_tb_cfg_pkg::*;
-import tensor_accel_env_pkg::*;
-import tensor_accel_seq_lib_pkg::*;
-
 class base_test extends uvm_test;
   `uvm_component_utils(base_test)
 

@@ -9,6 +9,9 @@ class tensor_accel_env extends uvm_env;
   tensor_accel_scoreboard scoreboard;
   tensor_accel_coverage coverage;
   svt_axi_system_env axi_system_env;
+  tensor_accel_reg_block reg_model;
+  tensor_accel_reg_adapter reg_adapter;
+  uvm_reg_predictor #(svt_axi_transaction) reg_predictor;
 
   function new(string name = "tensor_accel_env", uvm_component parent = null);
     super.new(name, parent);
@@ -34,6 +37,15 @@ class tensor_accel_env extends uvm_env;
       uvm_config_db #(tensor_accel_env_cfg)::set(this, "coverage", "cfg", cfg);
       coverage = tensor_accel_coverage::type_id::create("coverage", this);
     end
+
+    reg_model = tensor_accel_reg_block::type_id::create("reg_model");
+    reg_model.build();
+    reg_model.lock_model();
+    reg_model.reset();
+    reg_adapter = tensor_accel_reg_adapter::type_id::create("reg_adapter");
+    reg_adapter.p_cfg = cfg.vip_cfg.axi_sys_cfg.master_cfg[0];
+    reg_predictor = uvm_reg_predictor #(svt_axi_transaction)::type_id::create("reg_predictor", this);
+    uvm_config_db #(tensor_accel_reg_block)::set(null, "*", "reg_model", reg_model);
 
     if (cfg.enable_svt_vip) begin
       uvm_config_db #(uvm_object_wrapper)::set(this,
@@ -66,9 +78,15 @@ class tensor_accel_env extends uvm_env;
 
   function void connect_phase(uvm_phase phase);
     super.connect_phase(phase);
-    // SVT monitor transaction adapters can connect to subscriber analysis_export
-    // handles here when protocol-level adapters are added.
+    if (cfg.enable_svt_vip && axi_system_env != null) begin
+      reg_model.default_map.set_sequencer(axi_system_env.master[0].sequencer, reg_adapter);
+      reg_model.default_map.set_auto_predict(1);
+      reg_predictor.map = reg_model.default_map;
+      reg_predictor.adapter = reg_adapter;
+      axi_system_env.master[0].monitor.item_started_port.connect(reg_predictor.bus_in);
+    end
   endfunction
+
 endclass
 
 `endif

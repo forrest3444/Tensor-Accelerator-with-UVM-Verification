@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module systolic_array #(
   parameter int ARRAY_M = 4,
   parameter int ARRAY_N = 4

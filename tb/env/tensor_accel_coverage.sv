@@ -62,8 +62,8 @@ class tensor_accel_coverage extends tensor_accel_subscriber;
     tensor_cg = new();
   endfunction
 
-  function void write(tensor_accel_matrix_item item);
-    sample_item(item, 1'b0, 1'b0);
+  function void write(tensor_accel_matrix_item t);
+    sample_item(t, 1'b0, 1'b0);
   endfunction
 
   function void sample_item(tensor_accel_matrix_item item,

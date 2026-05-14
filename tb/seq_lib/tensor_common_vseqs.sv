@@ -1,6 +1,60 @@
 `ifndef TENSOR_ACCEL_COMMON_VSEQS_SV
 `define TENSOR_ACCEL_COMMON_VSEQS_SV
 
+class tensor_base_reg_rw_seq extends base_vseq;
+  `uvm_object_utils(tensor_base_reg_rw_seq)
+
+  function new(string name = "tensor_base_reg_rw_seq");
+    super.new(name);
+  endfunction
+
+  virtual task body();
+    `uvm_info(get_type_name(), "Checking AXI-Lite register reset defaults", UVM_MEDIUM)
+    ral_check(reg_model.M_SIZE, 32'd0);
+    ral_check(reg_model.N_SIZE, 32'd0);
+    ral_check(reg_model.K_SIZE, 32'd0);
+    ral_check(reg_model.PRECISION, 32'd0);
+    ral_check(reg_model.POST_OP, 32'd0);
+    ral_check(reg_model.SAT_MODE, 32'd0);
+    ral_check(reg_model.STATUS, 32'd0,
+              STATUS_BUSY | STATUS_DONE | STATUS_ERROR | STATUS_IRQ | STATUS_OVERFLOW_SEEN);
+    ral_check(reg_model.ERROR_CODE, {28'd0, ERR_NO_ERROR}, 32'h0000_000f);
+
+    `uvm_info(get_type_name(), "Checking AXI-Lite register write/readback", UVM_MEDIUM)
+    ral_write(reg_model.M_SIZE, 32'd13);
+    ral_check(reg_model.M_SIZE, 32'd13);
+
+    ral_write(reg_model.N_SIZE, 32'd21);
+    ral_check(reg_model.N_SIZE, 32'd21);
+
+    ral_write(reg_model.K_SIZE, 32'd34);
+    ral_check(reg_model.K_SIZE, 32'd34);
+
+    ral_write(reg_model.PRECISION, {30'd0, PREC_INT16});
+    ral_check(reg_model.PRECISION, {30'd0, PREC_INT16});
+
+    ral_write(reg_model.POST_OP, {30'd0, POST_BIAS_RELU});
+    ral_check(reg_model.POST_OP, {30'd0, POST_BIAS_RELU});
+
+    ral_write(reg_model.SAT_MODE, {31'd0, SAT_SATURATE});
+    ral_check(reg_model.SAT_MODE, {31'd0, SAT_SATURATE});
+
+    `uvm_info(get_type_name(), "Checking reserved register bits are ignored", UVM_MEDIUM)
+    ral_write(reg_model.PRECISION, 32'ha5a5_a5a1);
+    ral_check(reg_model.PRECISION, {30'd0, PREC_INT16});
+
+    ral_write(reg_model.POST_OP, 32'h5a5a_5a5a);
+    ral_check(reg_model.POST_OP, {30'd0, POST_RELU});
+
+    ral_write(reg_model.SAT_MODE, 32'hffff_fffe);
+    ral_check(reg_model.SAT_MODE, {31'd0, SAT_WRAP});
+
+    ral_check(reg_model.STATUS, 32'd0,
+              STATUS_BUSY | STATUS_DONE | STATUS_ERROR | STATUS_IRQ | STATUS_OVERFLOW_SEEN);
+    ral_check(reg_model.ERROR_CODE, {28'd0, ERR_NO_ERROR}, 32'h0000_000f);
+  endtask
+endclass
+
 class tensor_program_seq extends base_vseq;
   `uvm_object_utils(tensor_program_seq)
 
@@ -91,26 +145,26 @@ class tensor_program_seq extends base_vseq;
                         m_size, n_size, k_size, precision, post_op, sat_mode),
               UVM_MEDIUM)
 
-    axil_write_reg(REG_M_SIZE, m_size);
-    axil_write_reg(REG_N_SIZE, n_size);
-    axil_write_reg(REG_K_SIZE, k_size);
-    axil_write_reg(REG_PRECISION, {30'd0, precision});
-    axil_write_reg(REG_POST_OP, {30'd0, post_op});
-    axil_write_reg(REG_SAT_MODE, {31'd0, sat_mode});
-    axil_write_reg(REG_A_BASE, a_base);
-    axil_write_reg(REG_B_BASE, b_base);
-    axil_write_reg(REG_C_BASE, c_base);
-    axil_write_reg(REG_BIAS_BASE, bias_base);
-    axil_write_reg(REG_A_SPAD_OFFSET, a_spad_offset);
-    axil_write_reg(REG_A_SPAD_SIZE, a_spad_size);
-    axil_write_reg(REG_B_SPAD_OFFSET, b_spad_offset);
-    axil_write_reg(REG_B_SPAD_SIZE, b_spad_size);
-    axil_write_reg(REG_C_SPAD_OFFSET, c_spad_offset);
-    axil_write_reg(REG_C_SPAD_SIZE, c_spad_size);
-    axil_write_reg(REG_BIAS_SPAD_OFFSET, bias_spad_offset);
-    axil_write_reg(REG_BIAS_SPAD_SIZE, bias_spad_size);
-    axil_write_reg(REG_DMA_CFG, {24'd0, burst_len});
-    axil_write_reg(REG_CTRL, irq_en ? CTRL_IRQ_EN : 32'd0);
+    ral_write(reg_model.M_SIZE, m_size);
+    ral_write(reg_model.N_SIZE, n_size);
+    ral_write(reg_model.K_SIZE, k_size);
+    ral_write(reg_model.PRECISION, {30'd0, precision});
+    ral_write(reg_model.POST_OP, {30'd0, post_op});
+    ral_write(reg_model.SAT_MODE, {31'd0, sat_mode});
+    ral_write(reg_model.A_BASE, a_base);
+    ral_write(reg_model.B_BASE, b_base);
+    ral_write(reg_model.C_BASE, c_base);
+    ral_write(reg_model.BIAS_BASE, bias_base);
+    ral_write(reg_model.A_SPAD_OFFSET, a_spad_offset);
+    ral_write(reg_model.A_SPAD_SIZE, a_spad_size);
+    ral_write(reg_model.B_SPAD_OFFSET, b_spad_offset);
+    ral_write(reg_model.B_SPAD_SIZE, b_spad_size);
+    ral_write(reg_model.C_SPAD_OFFSET, c_spad_offset);
+    ral_write(reg_model.C_SPAD_SIZE, c_spad_size);
+    ral_write(reg_model.BIAS_SPAD_OFFSET, bias_spad_offset);
+    ral_write(reg_model.BIAS_SPAD_SIZE, bias_spad_size);
+    ral_write(reg_model.DMA_CFG, {24'd0, burst_len});
+    ral_write(reg_model.CTRL, irq_en ? CTRL_IRQ_EN : 32'd0);
   endtask
 endclass
 
@@ -125,7 +179,7 @@ class tensor_start_seq extends base_vseq;
   endfunction
 
   virtual task body();
-    axil_write_reg(REG_CTRL, CTRL_START | (irq_en ? CTRL_IRQ_EN : 32'd0));
+    ral_write(reg_model.CTRL, CTRL_START | (irq_en ? CTRL_IRQ_EN : 32'd0));
   endtask
 endclass
 
@@ -166,7 +220,10 @@ class tensor_wait_done_seq extends base_vseq;
     elapsed = 0;
     terminal_seen = 1'b0;
     while (!terminal_seen && elapsed < timeout_cycles) begin
-      axil_read_reg(REG_STATUS, status_data);
+      uvm_reg_data_t read_data;
+
+      ral_read(reg_model.STATUS, read_data);
+      status_data = read_data[31:0];
       done_seen = (status_data & STATUS_DONE) != 0;
       error_seen = (status_data & STATUS_ERROR) != 0;
       terminal_seen = done_seen || error_seen;
@@ -185,7 +242,10 @@ class tensor_wait_done_seq extends base_vseq;
     end
 
     if (error_seen) begin
-      axil_read_reg(REG_ERROR_CODE, error_data);
+      uvm_reg_data_t read_data;
+
+      ral_read(reg_model.ERROR_CODE, read_data);
+      error_data = read_data[31:0];
       error_code = error_code_e'(error_data[3:0]);
     end
 
@@ -242,9 +302,9 @@ class tensor_clear_status_seq extends base_vseq;
     if (irq_en) ctrl_data |= CTRL_IRQ_EN;
     if (clear_done) ctrl_data |= CTRL_CLEAR_DONE;
     if (clear_error) ctrl_data |= CTRL_CLEAR_ERROR;
-    axil_write_reg(REG_CTRL, ctrl_data);
+    ral_write(reg_model.CTRL, ctrl_data);
     if (clear_irq) begin
-      axil_write_reg(REG_IRQ_STATUS, 32'd1);
+      ral_write(reg_model.IRQ_STATUS, 32'd1);
     end
   endtask
 endclass
@@ -260,12 +320,12 @@ class tensor_soft_reset_seq extends base_vseq;
   endfunction
 
   virtual task body();
-    axil_write_reg(REG_CTRL, CTRL_SOFT_RESET);
+    ral_write(reg_model.CTRL, CTRL_SOFT_RESET);
     wait_cfg_clocks(2);
     if (check_status) begin
-      axil_check_reg(REG_STATUS, 32'd0,
-                     STATUS_BUSY | STATUS_DONE | STATUS_ERROR | STATUS_IRQ);
-      axil_check_reg(REG_ERROR_CODE, {28'd0, ERR_NO_ERROR}, 32'h0000_000f);
+      ral_check(reg_model.STATUS, 32'd0,
+                STATUS_BUSY | STATUS_DONE | STATUS_ERROR | STATUS_IRQ);
+      ral_check(reg_model.ERROR_CODE, {28'd0, ERR_NO_ERROR}, 32'h0000_000f);
     end
   endtask
 endclass

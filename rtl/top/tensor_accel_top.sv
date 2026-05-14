@@ -1,8 +1,6 @@
-`timescale 1ns/1ps
-
-import tensor_pkg::*;
-
-module tensor_accel_top (
+module tensor_accel_top
+  import tensor_pkg::*;
+(
   input  logic clk,
   input  logic rst_n,
 

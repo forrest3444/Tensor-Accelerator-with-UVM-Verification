@@ -1,8 +1,6 @@
-`timescale 1ns/1ps
-
-import tensor_pkg::*;
-
-module tile_scheduler (
+module tile_scheduler
+  import tensor_pkg::*;
+(
   input  logic clk,
   input  logic rst_n,
   input  logic init_i,

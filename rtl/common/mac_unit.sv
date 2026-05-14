@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module mac_unit (
   input  logic        clk,
   input  logic        rst_n,

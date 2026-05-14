@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module tensor_writer (
   input  logic clk,
   input  logic rst_n,

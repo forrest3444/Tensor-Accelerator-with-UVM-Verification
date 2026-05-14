@@ -11,10 +11,10 @@ class tensor_accel_scoreboard extends tensor_accel_subscriber;
     super.new(name, parent);
   endfunction
 
-  function void write(tensor_accel_matrix_item item);
-    if (item.expected_c.size() != item.actual_c.size()) begin
+  function void write(tensor_accel_matrix_item t);
+    if (t.expected_c.size() != t.actual_c.size()) begin
       `uvm_error("SCB_SIZE", $sformatf("expected size %0d actual size %0d",
-                 item.expected_c.size(), item.actual_c.size()))
+                 t.expected_c.size(), t.actual_c.size()))
       mismatch_count++;
       if (cfg != null) begin
         cfg.add_scb_check_error();
@@ -22,19 +22,19 @@ class tensor_accel_scoreboard extends tensor_accel_subscriber;
       return;
     end
 
-    foreach (item.expected_c[idx]) begin
+    foreach (t.expected_c[idx]) begin
       compare_count++;
       if (cfg != null) begin
         cfg.add_scb_check_count();
       end
-      if (item.expected_c[idx] !== item.actual_c[idx]) begin
+      if (t.expected_c[idx] !== t.actual_c[idx]) begin
         mismatch_count++;
         if (cfg != null) begin
           cfg.add_scb_check_error();
         end
         `uvm_error("SCB_MISMATCH",
                    $sformatf("C[%0d] expected=%0d actual=%0d",
-                             idx, item.expected_c[idx], item.actual_c[idx]))
+                             idx, t.expected_c[idx], t.actual_c[idx]))
       end
     end
   endfunction

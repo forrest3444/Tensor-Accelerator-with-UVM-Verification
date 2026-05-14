@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module axi_read_dma #(
   parameter int AXI_ADDR_WIDTH = 32,
   parameter int AXI_DATA_WIDTH = 64,

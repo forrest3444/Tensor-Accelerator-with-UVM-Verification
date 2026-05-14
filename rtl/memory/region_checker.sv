@@ -1,8 +1,6 @@
-`timescale 1ns/1ps
-
-import tensor_pkg::*;
-
-module region_checker #(
+module region_checker
+  import tensor_pkg::*;
+#(
   parameter int SPAD_BYTES = tensor_pkg::SPAD_BYTES,
   parameter int AXI_DATA_WIDTH = tensor_pkg::AXI_DATA_WIDTH
 ) (

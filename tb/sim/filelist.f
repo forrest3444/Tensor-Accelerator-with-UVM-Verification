@@ -36,8 +36,9 @@
 # =========================================================
 ../tb/tensor_accel_dut_if.sv
 ../cfg/tensor_accel_tb_cfg_pkg.sv
+../reg_model/tensor_accel_reg_pkg.sv
 ../env/tensor_accel_env_pkg.sv
-../seq_lib/tensor_accel_seq_lib_pkg.sv
+../tb/tensor_accel_uvm_pkg.sv
 
 # =========================================================
 # TB Top

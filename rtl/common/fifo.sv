@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module fifo #(
   parameter int WIDTH = 32,
   parameter int DEPTH = 4,

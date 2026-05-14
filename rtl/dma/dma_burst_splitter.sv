@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module dma_burst_splitter #(
   parameter int AXI_DATA_WIDTH = 64,
   parameter int MAX_BURST_BEATS = 16,

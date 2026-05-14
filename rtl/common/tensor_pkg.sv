@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 package tensor_pkg;
   parameter int AXIL_ADDR_WIDTH = 16;
   parameter int AXIL_DATA_WIDTH = 32;

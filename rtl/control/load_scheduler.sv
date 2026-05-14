@@ -1,8 +1,6 @@
-`timescale 1ns/1ps
-
-import tensor_pkg::*;
-
-module load_scheduler (
+module load_scheduler
+  import tensor_pkg::*;
+(
   input  accel_cfg_t cfg_i,
   input  logic [5:0] tile_m_i,
   input  logic [5:0] tile_n_i,

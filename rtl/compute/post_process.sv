@@ -1,8 +1,6 @@
-`timescale 1ns/1ps
-
-import tensor_pkg::*;
-
-module post_process #(
+module post_process
+  import tensor_pkg::*;
+#(
   parameter int ARRAY_M = 4,
   parameter int ARRAY_N = 4
 ) (

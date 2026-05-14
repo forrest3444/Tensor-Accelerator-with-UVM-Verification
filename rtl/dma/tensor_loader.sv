@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module tensor_loader (
   input  logic clk,
   input  logic rst_n,

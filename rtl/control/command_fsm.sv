@@ -1,8 +1,6 @@
-`timescale 1ns/1ps
-
-import tensor_pkg::*;
-
-module command_fsm (
+module command_fsm
+  import tensor_pkg::*;
+(
   input  logic clk,
   input  logic rst_n,
   input  logic start_i,

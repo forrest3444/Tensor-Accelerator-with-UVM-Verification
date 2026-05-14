@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-
 module saturate #(
   parameter int IN_WIDTH  = 40,
   parameter int OUT_WIDTH = 32
