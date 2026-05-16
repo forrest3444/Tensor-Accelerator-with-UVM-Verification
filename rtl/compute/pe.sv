@@ -6,7 +6,8 @@ module pe (
   input  logic        precision_i,
   input  logic [15:0] a_i,
   input  logic [15:0] b_i,
-  output logic [31:0] acc_o
+  output logic [31:0] acc_o,
+  output logic        overflow_o
 );
   mac_unit u_mac_unit (
     .clk(clk),
@@ -16,6 +17,7 @@ module pe (
     .precision_i(precision_i),
     .a_i(a_i),
     .b_i(b_i),
-    .acc_o(acc_o)
+    .acc_o(acc_o),
+    .overflow_o(overflow_o)
   );
 endmodule

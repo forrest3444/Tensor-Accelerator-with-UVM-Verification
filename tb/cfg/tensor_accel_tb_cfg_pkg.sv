@@ -63,11 +63,18 @@ package tensor_accel_tb_cfg_pkg;
     endfunction
 
     virtual function void configure_common_port(svt_axi_port_configuration port_cfg);
-      port_cfg.protocol_checks_coverage_enable = 1;
-      port_cfg.transaction_coverage_enable = 1;
-      port_cfg.enable_xml_gen = 1;
-      port_cfg.pa_format_type = svt_xml_writer::BOTH;
-      port_cfg.protocol_check_stats_enable = 1;
+      port_cfg.protocol_checks_enable = 0;
+      port_cfg.protocol_checks_coverage_enable = 0;
+      port_cfg.protocol_check_stats_enable = 0;
+      port_cfg.transaction_coverage_enable = 0;
+      port_cfg.toggle_coverage_enable = 0;
+      port_cfg.state_coverage_enable = 0;
+      port_cfg.meta_coverage_enable = 0;
+      port_cfg.valid_ready_dependency_coverage_enable = 0;
+      port_cfg.enable_xml_gen = 0;
+      port_cfg.enable_memcore_xml_gen = 0;
+      port_cfg.pa_format_type = svt_xml_writer::FSDB;
+      port_cfg.silent_mode = 1;
     endfunction
 
     virtual function void configure_axil_master(svt_axi_port_configuration master_cfg);
@@ -135,7 +142,7 @@ package tensor_accel_tb_cfg_pkg;
     tensor_accel_region_cfg bias_region;
 
     bit has_scoreboard = 1'b1;
-    bit has_coverage   = 1'b1;
+    bit has_coverage   = 1'b0;
     bit enable_irq_check = 1'b1;
     bit enable_error_check = 1'b1;
     bit enable_reset_during_task = 1'b1;

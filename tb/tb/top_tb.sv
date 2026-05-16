@@ -8,6 +8,11 @@ module top_tb;
   logic [1:0] dut_s_axil_rresp;
   logic [7:0] dut_m_axi_arlen;
   logic [7:0] dut_m_axi_awlen;
+  localparam int AXIL_DATA_IF_WIDTH = $bits(axi_if.master_if[0].rdata);
+  localparam int AXI_ADDR_IF_WIDTH  = $bits(axi_if.slave_if[0].araddr);
+  localparam int AXI_DATA_IF_WIDTH  = $bits(axi_if.slave_if[0].wdata);
+  localparam int AXI_STRB_IF_WIDTH  = $bits(axi_if.slave_if[0].wstrb);
+  localparam int AXI_ID_IF_WIDTH    = $bits(axi_if.slave_if[0].arid);
 
   assign axi_if.common_aclk = clk;
   assign axi_if.master_if[0].aresetn = dut_if.rst_n;
@@ -16,6 +21,41 @@ module top_tb;
   assign axi_if.master_if[0].rresp = {2'b00, dut_s_axil_rresp};
   assign axi_if.slave_if[0].arlen = {2'b00, dut_m_axi_arlen};
   assign axi_if.slave_if[0].awlen = {2'b00, dut_m_axi_awlen};
+  assign axi_if.slave_if[0].arlock = '0;
+  assign axi_if.slave_if[0].arcache = '0;
+  assign axi_if.slave_if[0].arprot = '0;
+  assign axi_if.slave_if[0].arqos = '0;
+  assign axi_if.slave_if[0].arregion = '0;
+  assign axi_if.slave_if[0].aruser = '0;
+  assign axi_if.slave_if[0].awlock = '0;
+  assign axi_if.slave_if[0].awcache = '0;
+  assign axi_if.slave_if[0].awprot = '0;
+  assign axi_if.slave_if[0].awqos = '0;
+  assign axi_if.slave_if[0].awregion = '0;
+  assign axi_if.slave_if[0].awuser = '0;
+  assign axi_if.slave_if[0].wuser = '0;
+
+  if (AXIL_DATA_IF_WIDTH > 32) begin : gen_axil_tieoffs
+    assign axi_if.master_if[0].rdata[AXIL_DATA_IF_WIDTH-1:32] = '0;
+  end
+
+  if (AXI_ADDR_IF_WIDTH > 32) begin : gen_axi_addr_tieoffs
+    assign axi_if.slave_if[0].araddr[AXI_ADDR_IF_WIDTH-1:32] = '0;
+    assign axi_if.slave_if[0].awaddr[AXI_ADDR_IF_WIDTH-1:32] = '0;
+  end
+
+  if (AXI_DATA_IF_WIDTH > 64) begin : gen_axi_data_tieoffs
+    assign axi_if.slave_if[0].wdata[AXI_DATA_IF_WIDTH-1:64] = '0;
+  end
+
+  if (AXI_STRB_IF_WIDTH > 8) begin : gen_axi_strb_tieoffs
+    assign axi_if.slave_if[0].wstrb[AXI_STRB_IF_WIDTH-1:8] = '0;
+  end
+
+  if (AXI_ID_IF_WIDTH > 1) begin : gen_axi_id_tieoffs
+    assign axi_if.slave_if[0].arid[AXI_ID_IF_WIDTH-1:1] = '0;
+    assign axi_if.slave_if[0].awid[AXI_ID_IF_WIDTH-1:1] = '0;
+  end
 
   initial begin
     clk = 1'b0;
@@ -55,6 +95,7 @@ module top_tb;
     .s_axil_rready(axi_if.master_if[0].rready),
 
     .m_axi_araddr(axi_if.slave_if[0].araddr[31:0]),
+    .m_axi_arid(axi_if.slave_if[0].arid[0]),
     .m_axi_arlen(dut_m_axi_arlen),
     .m_axi_arsize(axi_if.slave_if[0].arsize),
     .m_axi_arburst(axi_if.slave_if[0].arburst),
@@ -62,12 +103,14 @@ module top_tb;
     .m_axi_arready(axi_if.slave_if[0].arready),
 
     .m_axi_rdata(axi_if.slave_if[0].rdata[63:0]),
+    .m_axi_rid(axi_if.slave_if[0].rid[0]),
     .m_axi_rresp(axi_if.slave_if[0].rresp[1:0]),
     .m_axi_rlast(axi_if.slave_if[0].rlast),
     .m_axi_rvalid(axi_if.slave_if[0].rvalid),
     .m_axi_rready(axi_if.slave_if[0].rready),
 
     .m_axi_awaddr(axi_if.slave_if[0].awaddr[31:0]),
+    .m_axi_awid(axi_if.slave_if[0].awid[0]),
     .m_axi_awlen(dut_m_axi_awlen),
     .m_axi_awsize(axi_if.slave_if[0].awsize),
     .m_axi_awburst(axi_if.slave_if[0].awburst),
@@ -81,6 +124,7 @@ module top_tb;
     .m_axi_wready(axi_if.slave_if[0].wready),
 
     .m_axi_bresp(axi_if.slave_if[0].bresp[1:0]),
+    .m_axi_bid(axi_if.slave_if[0].bid[0]),
     .m_axi_bvalid(axi_if.slave_if[0].bvalid),
     .m_axi_bready(axi_if.slave_if[0].bready),
     .irq(dut_if.irq)

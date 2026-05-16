@@ -24,13 +24,12 @@ module dma_burst_splitter #(
     legal_bytes = bytes_i;
     if (legal_bytes > max_burst_bytes) legal_bytes = max_burst_bytes;
     if (AUTO_SPLIT_4KB && legal_bytes > bytes_to_4kb) legal_bytes = bytes_to_4kb;
-    aligned_bytes = legal_bytes - (legal_bytes % BEAT_BYTES);
-    if (aligned_bytes == 0 && legal_bytes != 0) aligned_bytes = BEAT_BYTES;
+    aligned_bytes = legal_bytes;
 
     valid_o = (bytes_i != 0) &&
               ((addr_i % BEAT_BYTES) == 0) &&
               (AUTO_SPLIT_4KB || !crosses_4kb_o);
-    burst_beats_32 = aligned_bytes / BEAT_BYTES;
+    burst_beats_32 = (aligned_bytes + BEAT_BYTES - 1) / BEAT_BYTES;
     burst_bytes_o = aligned_bytes;
     burst_beats_o = burst_beats_32[7:0];
   end

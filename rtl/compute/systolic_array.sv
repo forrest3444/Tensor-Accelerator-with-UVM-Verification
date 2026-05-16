@@ -11,8 +11,11 @@ module systolic_array #(
   input  logic [ARRAY_N-1:0]         col_valid_i,
   input  logic [ARRAY_M-1:0][15:0]   a_vec_i,
   input  logic [ARRAY_N-1:0][15:0]   b_vec_i,
-  output logic [ARRAY_M-1:0][ARRAY_N-1:0][31:0] acc_o
+  output logic [ARRAY_M-1:0][ARRAY_N-1:0][31:0] acc_o,
+  output logic                       overflow_o
 );
+  logic [ARRAY_M-1:0][ARRAY_N-1:0] pe_overflow;
+
   genvar r;
   genvar c;
 
@@ -27,9 +30,19 @@ module systolic_array #(
           .precision_i(precision_i),
           .a_i(a_vec_i[r]),
           .b_i(b_vec_i[c]),
-          .acc_o(acc_o[r][c])
+          .acc_o(acc_o[r][c]),
+          .overflow_o(pe_overflow[r][c])
         );
       end
     end
   endgenerate
+
+  always_comb begin
+    overflow_o = 1'b0;
+    for (int rr = 0; rr < ARRAY_M; rr++) begin
+      for (int cc = 0; cc < ARRAY_N; cc++) begin
+        overflow_o |= pe_overflow[rr][cc];
+      end
+    end
+  end
 endmodule

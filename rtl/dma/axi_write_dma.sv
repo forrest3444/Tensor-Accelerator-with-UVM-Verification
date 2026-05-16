@@ -17,6 +17,7 @@ module axi_write_dma #(
   output logic cross_4kb_o,
 
   output logic [AXI_ADDR_WIDTH-1:0] m_axi_awaddr,
+  output logic m_axi_awid,
   output logic [7:0] m_axi_awlen,
   output logic [2:0] m_axi_awsize,
   output logic [1:0] m_axi_awburst,
@@ -28,6 +29,7 @@ module axi_write_dma #(
   output logic m_axi_wvalid,
   input  logic m_axi_wready,
   input  logic [1:0] m_axi_bresp,
+  input  logic m_axi_bid,
   input  logic m_axi_bvalid,
   output logic m_axi_bready,
 
@@ -45,7 +47,7 @@ module axi_write_dma #(
   localparam logic [SPAD_ADDR_WIDTH-1:0] SPAD_WORD_BYTES =
       SPAD_ADDR_WIDTH'(SPAD_DATA_WIDTH / 8);
 
-  typedef enum logic [2:0] {S_IDLE, S_AW, S_READ, S_W, S_B, S_DONE} state_e;
+  typedef enum logic [2:0] {S_IDLE, S_AW, S_READ_REQ, S_READ_DATA, S_W, S_B, S_DONE} state_e;
   state_e state_q, state_d;
   logic [7:0] burst_beats;
   logic [31:0] burst_bytes;
@@ -54,6 +56,9 @@ module axi_write_dma #(
   logic [$clog2(SPAD_WORDS_PER_BEAT)-1:0] word_count_q;
   logic [SPAD_ADDR_WIDTH-1:0] spad_addr_q;
   logic [AXI_DATA_WIDTH-1:0] wdata_q;
+  logic [31:0] bytes_sent;
+  logic [31:0] bytes_left;
+  logic [AXI_DATA_WIDTH/8-1:0] last_wstrb;
 
   dma_burst_splitter #(
     .AXI_DATA_WIDTH(AXI_DATA_WIDTH),
@@ -69,16 +74,25 @@ module axi_write_dma #(
   );
 
   assign m_axi_awaddr = addr_i;
+  assign m_axi_awid = 1'b0;
   assign m_axi_awlen = burst_beats - 8'd1;
   assign m_axi_awsize = AXI_SIZE;
   assign m_axi_awburst = 2'b01;
   assign m_axi_awvalid = (state_q == S_AW);
   assign m_axi_wdata = wdata_q;
-  assign m_axi_wstrb = '1;
+  assign bytes_sent = {24'd0, beat_count_q} * AXI_BYTES;
+  assign bytes_left = (byte_len_i > bytes_sent) ? (byte_len_i - bytes_sent) : 32'd0;
+  always_comb begin
+    last_wstrb = '0;
+    for (int lane = 0; lane < AXI_BYTES; lane++) begin
+      last_wstrb[lane] = (bytes_left > lane[31:0]);
+    end
+  end
+  assign m_axi_wstrb = (bytes_left >= AXI_BYTES) ? '1 : last_wstrb;
   assign m_axi_wlast = (beat_count_q == burst_beats - 1);
   assign m_axi_wvalid = (state_q == S_W);
   assign m_axi_bready = (state_q == S_B);
-  assign spad_req_o = (state_q == S_READ);
+  assign spad_req_o = (state_q == S_READ_REQ);
   assign spad_we_o = 1'b0;
   assign spad_addr_o = spad_addr_q;
   assign busy_o = (state_q != S_IDLE) && (state_q != S_DONE);
@@ -88,13 +102,13 @@ module axi_write_dma #(
     state_d = state_q;
     unique case (state_q)
       S_IDLE: if (start_i && splitter_valid) state_d = S_AW;
-      S_AW:   if (m_axi_awvalid && m_axi_awready) state_d = S_READ;
-      S_READ: if (spad_ready_i && word_count_q == LAST_WORD) state_d = S_W;
-              else state_d = S_READ;
+      S_AW:   if (m_axi_awvalid && m_axi_awready) state_d = S_READ_REQ;
+      S_READ_REQ: if (spad_ready_i) state_d = S_READ_DATA;
+      S_READ_DATA: state_d = (word_count_q == LAST_WORD) ? S_W : S_READ_REQ;
       S_W:    if (m_axi_wvalid && m_axi_wready) begin
-                state_d = m_axi_wlast ? S_B : S_READ;
+                state_d = m_axi_wlast ? S_B : S_READ_REQ;
               end
-      S_B:    if (m_axi_bvalid) state_d = S_DONE;
+      S_B:    if (m_axi_bvalid && m_axi_bready) state_d = S_DONE;
       S_DONE: state_d = S_IDLE;
       default: state_d = S_IDLE;
     endcase
@@ -116,7 +130,7 @@ module axi_write_dma #(
         word_count_q <= '0;
         spad_addr_q <= spad_offset_i;
       end
-      if (state_q == S_READ && spad_ready_i) begin
+      if (state_q == S_READ_DATA) begin
         wdata_q[word_count_q*SPAD_DATA_WIDTH +: SPAD_DATA_WIDTH] <= spad_rdata_i;
         spad_addr_q <= spad_addr_q + SPAD_WORD_BYTES;
         if (word_count_q == LAST_WORD) begin

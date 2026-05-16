@@ -11,6 +11,7 @@ module tensor_writer (
   output logic cross_4kb_o,
 
   output logic [31:0] m_axi_awaddr,
+  output logic        m_axi_awid,
   output logic [7:0]  m_axi_awlen,
   output logic [2:0]  m_axi_awsize,
   output logic [1:0]  m_axi_awburst,
@@ -22,6 +23,7 @@ module tensor_writer (
   output logic        m_axi_wvalid,
   input  logic        m_axi_wready,
   input  logic [1:0]  m_axi_bresp,
+  input  logic        m_axi_bid,
   input  logic        m_axi_bvalid,
   output logic        m_axi_bready,
 
@@ -43,6 +45,7 @@ module tensor_writer (
     .error_o(error_o),
     .cross_4kb_o(cross_4kb_o),
     .m_axi_awaddr(m_axi_awaddr),
+    .m_axi_awid(m_axi_awid),
     .m_axi_awlen(m_axi_awlen),
     .m_axi_awsize(m_axi_awsize),
     .m_axi_awburst(m_axi_awburst),
@@ -54,6 +57,7 @@ module tensor_writer (
     .m_axi_wvalid(m_axi_wvalid),
     .m_axi_wready(m_axi_wready),
     .m_axi_bresp(m_axi_bresp),
+    .m_axi_bid(m_axi_bid),
     .m_axi_bvalid(m_axi_bvalid),
     .m_axi_bready(m_axi_bready),
     .spad_req_o(spad_req_o),

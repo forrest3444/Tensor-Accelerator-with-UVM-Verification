@@ -25,6 +25,7 @@ module axi_lite_slave #(
   output logic reg_wr_en_o,
   output logic [ADDR_WIDTH-1:0] reg_wr_addr_o,
   output logic [DATA_WIDTH-1:0] reg_wr_data_o,
+  output logic [DATA_WIDTH/8-1:0] reg_wr_strb_o,
   output logic reg_rd_en_o,
   output logic [ADDR_WIDTH-1:0] reg_rd_addr_o,
   input  logic [DATA_WIDTH-1:0] reg_rd_data_i
@@ -40,6 +41,7 @@ module axi_lite_slave #(
   assign reg_wr_en_o = s_axil_wvalid && s_axil_wready;
   assign reg_wr_addr_o = awaddr_q;
   assign reg_wr_data_o = s_axil_wdata;
+  assign reg_wr_strb_o = s_axil_wstrb;
   assign reg_rd_en_o = s_axil_arvalid && s_axil_arready;
   assign reg_rd_addr_o = s_axil_araddr;
 
