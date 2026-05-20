@@ -41,8 +41,8 @@ module load_scheduler
     tile_k = ((cfg_i.k_size - k_base) > 4) ? 32'd4 : (cfg_i.k_size - k_base);
     a_row_bytes = tile_k * elem_b;
     b_row_bytes = tile_cols * elem_b;
-    a_row_stride = (a_row_bytes + 32'd7) & 32'hffff_fff8;
-    b_row_stride = (b_row_bytes + 32'd7) & 32'hffff_fff8;
+    a_row_stride = (a_row_bytes + 32'd14) & 32'hffff_fff8;
+    b_row_stride = (b_row_bytes + 32'd14) & 32'hffff_fff8;
 
     a_addr_o = cfg_i.a_base + a_start_byte;
     b_addr_o = cfg_i.b_base + b_start_byte;

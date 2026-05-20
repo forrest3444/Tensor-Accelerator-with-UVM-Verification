@@ -6,5 +6,6 @@
 `include "tensor_base_int8_4x4_test.sv"
 `include "tensor_base_int16_4x4_test.sv"
 `include "tensor_base_square_tile_tests.sv"
+`include "tensor_base_rect_matrix_test.sv"
 
 `endif

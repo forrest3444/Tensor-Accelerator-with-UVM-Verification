@@ -7,8 +7,8 @@ SEED      ?= 1
 VERB      ?= UVM_MEDIUM
 RUN_TIME  ?= 1s
 BUILD_NAME ?= default
-COV       ?= 1
-FSDB      ?= 1
+COV       ?= 0
+FSDB      ?= 0
 ASSERT    ?= 1
 DEBUG     ?= 0
 
@@ -86,7 +86,7 @@ VCS_WAVE_OPTS  = -kdb                   \
 
 VCS_DEBUG_OPTS = -debug_access+all
 
-VCS_OPTS = $(VCS_BASE_OPTS) $(VCS_WAVE_OPTS)
+VCS_OPTS = $(VCS_BASE_OPTS)
 
 ###############################################################################
 # Optional Feature Switches
@@ -97,6 +97,10 @@ endif
 
 ifneq ($(DEBUG),0)
 VCS_OPTS += $(VCS_DEBUG_OPTS) +define+DEBUG
+endif
+
+ifneq ($(FSDB),0)
+VCS_OPTS += $(VCS_WAVE_OPTS)
 endif
 
 ifneq ($(COV),0)
@@ -237,5 +241,5 @@ help:
 	@echo "  clean_all    Remove all generated artifacts"
 	@echo ""
 	@echo "Defaults:"
-	@echo "  COV=1 FSDB=1 ASSERT=1 DEBUG=0"
+	@echo "  COV=0 FSDB=0 ASSERT=1 DEBUG=0"
 	@echo "  VIP_ROOT=$(VIP_ROOT)"

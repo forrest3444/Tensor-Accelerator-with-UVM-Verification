@@ -149,18 +149,15 @@ class tensor_base_int8_4x4_test extends base_test;
   endtask
 
   virtual task read_c_memory(ref int signed actual_c[DIM * DIM]);
-    bit [7:0] byte0;
-    bit [7:0] byte1;
-    bit [7:0] byte2;
-    bit [7:0] byte3;
+    bit [7:0] c_bytes[];
     bit signed [31:0] word_data;
 
+    c_bytes = new[C_BYTES];
+    env.axi_system_env.slave[0].read_num_byte(C_BASE, c_bytes.size(), c_bytes);
+
     for (int i = 0; i < DIM * DIM; i++) begin
-      env.axi_system_env.slave[0].read_byte(C_BASE + (i * 4) + 0, byte0);
-      env.axi_system_env.slave[0].read_byte(C_BASE + (i * 4) + 1, byte1);
-      env.axi_system_env.slave[0].read_byte(C_BASE + (i * 4) + 2, byte2);
-      env.axi_system_env.slave[0].read_byte(C_BASE + (i * 4) + 3, byte3);
-      word_data = {byte3, byte2, byte1, byte0};
+      word_data = {c_bytes[(i * 4) + 3], c_bytes[(i * 4) + 2],
+                   c_bytes[(i * 4) + 1], c_bytes[(i * 4) + 0]};
       actual_c[i] = word_data;
     end
   endtask

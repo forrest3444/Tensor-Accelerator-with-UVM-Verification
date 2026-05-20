@@ -41,6 +41,7 @@ package tensor_accel_tb_cfg_pkg;
     int unsigned max_burst_len   = 16;
     int unsigned rd_outstanding  = 1;
     int unsigned wr_outstanding  = 1;
+    longint unsigned axi_slave_addr_bytes = 64'h0000_0000_0010_0000;
 
     svt_axi_system_configuration axi_sys_cfg;
 
@@ -59,7 +60,7 @@ package tensor_accel_tb_cfg_pkg;
 
       configure_axil_master(axi_sys_cfg.master_cfg[AXIL_MASTER_ID]);
       configure_axi_slave(axi_sys_cfg.slave_cfg[AXI_SLAVE_ID]);
-      axi_sys_cfg.set_addr_range(AXI_SLAVE_ID, '0, 64'h0000_0000_ffff_ffff);
+      axi_sys_cfg.set_addr_range(AXI_SLAVE_ID, '0, axi_slave_addr_bytes - 1);
     endfunction
 
     virtual function void configure_common_port(svt_axi_port_configuration port_cfg);

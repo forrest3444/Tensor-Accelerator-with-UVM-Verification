@@ -233,8 +233,8 @@ module tensor_accel_top
   assign b_start_byte = ((k_base * cfg.n_size) + col_base) * elem_b;
   assign a_row_bytes = {28'd0, compute_k_limit} * elem_b;
   assign b_row_bytes = tile_cols * elem_b;
-  assign a_spad_stride = (a_row_bytes + 32'd7) & 32'hffff_fff8;
-  assign b_spad_stride = (b_row_bytes + 32'd7) & 32'hffff_fff8;
+  assign a_spad_stride = (a_row_bytes + 32'd14) & 32'hffff_fff8;
+  assign b_spad_stride = (b_row_bytes + 32'd14) & 32'hffff_fff8;
   assign read_row_mode = load_a_start || load_b_start;
   assign read_row_count = load_a_start ? tile_rows[2:0] :
                           (load_b_start ? compute_k_limit[2:0] : 3'd1);

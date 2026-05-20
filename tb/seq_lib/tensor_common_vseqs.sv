@@ -202,7 +202,7 @@ class tensor_wait_done_seq extends base_vseq;
   function new(string name = "tensor_wait_done_seq");
     super.new(name);
     timeout_cycles = 10000;
-    poll_interval_cycles = 10;
+    poll_interval_cycles = 1000;
     expect_error = 1'b0;
     check_error_code = 1'b0;
     exp_error_code = ERR_NO_ERROR;
