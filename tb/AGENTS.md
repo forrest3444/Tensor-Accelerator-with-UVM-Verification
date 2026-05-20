@@ -1,4 +1,3 @@
-````markdown
 # AGENTS.md
 
 ## Scope
@@ -15,7 +14,7 @@ Whenever a test case is run and the result exposes a DUT defect, suspected DUT d
 
 ```text
 tb/doc/bug_log.md
-````
+```
 
 If `tb/doc/bug_log.md` does not exist, create it.
 
@@ -127,7 +126,7 @@ If not confirmed yet, write:
 
 ```text
 Not confirmed yet.
-````
+```
 
 ### Fix / Workaround
 
@@ -168,7 +167,7 @@ Bug IDs must follow this format:
 
 ```text
 BUG-YYYYMMDD-NNN
-````
+```
 
 Example:
 
@@ -402,7 +401,3 @@ After updating `tb/doc/bug_log.md`, the agent should summarize to the user:
 5. whether the failing test was rerun
 
 Do not paste the entire bug log into the chat unless explicitly requested.
-
-```
-```
-
