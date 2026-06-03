@@ -48,6 +48,13 @@ module reg_file
   localparam logic [15:0] ERROR_CODE       = 16'h005c;
 
   accel_cfg_t cfg_q;
+  logic wr_en_q;
+  logic [15:0] wr_addr_q;
+  logic [31:0] wr_data_q;
+  logic [3:0] wr_strb_q;
+  logic rd_en_q;
+  logic [15:0] rd_addr_q;
+  logic [31:0] rd_data_d;
 
   assign cfg_o = cfg_q;
 
@@ -66,6 +73,40 @@ module reg_file
     end
   endfunction
 
+  always_comb begin
+    rd_data_d = 32'd0;
+    if (rd_en_q) begin
+      unique case (rd_addr_q)
+        CTRL: rd_data_d = {29'd0, irq_en_o, 2'd0};
+        STATUS: rd_data_d = {27'd0, status_i.overflow_seen, status_i.irq,
+                             status_i.error, status_i.done, status_i.busy};
+        M_SIZE: rd_data_d = cfg_q.m_size;
+        N_SIZE: rd_data_d = cfg_q.n_size;
+        K_SIZE: rd_data_d = cfg_q.k_size;
+        PRECISION: rd_data_d = {30'd0, cfg_q.precision};
+        POST_OP: rd_data_d = {30'd0, cfg_q.post_op};
+        SAT_MODE: rd_data_d = {31'd0, cfg_q.sat_mode};
+        A_BASE: rd_data_d = cfg_q.a_base;
+        B_BASE: rd_data_d = cfg_q.b_base;
+        C_BASE: rd_data_d = cfg_q.c_base;
+        BIAS_BASE: rd_data_d = cfg_q.bias_base;
+        A_SPAD_OFFSET: rd_data_d = cfg_q.a_spad_offset;
+        A_SPAD_SIZE: rd_data_d = cfg_q.a_spad_size;
+        B_SPAD_OFFSET: rd_data_d = cfg_q.b_spad_offset;
+        B_SPAD_SIZE: rd_data_d = cfg_q.b_spad_size;
+        C_SPAD_OFFSET: rd_data_d = cfg_q.c_spad_offset;
+        C_SPAD_SIZE: rd_data_d = cfg_q.c_spad_size;
+        BIAS_SPAD_OFFSET: rd_data_d = cfg_q.bias_spad_offset;
+        BIAS_SPAD_SIZE: rd_data_d = cfg_q.bias_spad_size;
+        DMA_CFG: rd_data_d = {24'd0, cfg_q.burst_len};
+        IRQ_STATUS: rd_data_d = {31'd0, status_i.irq};
+        OVF_COUNT: rd_data_d = ovf_count_i;
+        ERROR_CODE: rd_data_d = {28'd0, error_code_i};
+        default: rd_data_d = 32'd0;
+      endcase
+    end
+  end
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       cfg_q <= '0;
@@ -76,78 +117,58 @@ module reg_file
       clear_done_pulse_o <= 1'b0;
       clear_error_pulse_o <= 1'b0;
       clear_irq_pulse_o <= 1'b0;
+      wr_en_q <= 1'b0;
+      wr_addr_q <= '0;
+      wr_data_q <= '0;
+      wr_strb_q <= '0;
+      rd_en_q <= 1'b0;
+      rd_addr_q <= '0;
+      rd_data_o <= '0;
     end else begin
+      wr_en_q <= wr_en_i;
+      wr_addr_q <= wr_addr_i;
+      wr_data_q <= wr_data_i;
+      wr_strb_q <= wr_strb_i;
+      rd_en_q <= rd_en_i;
+      rd_addr_q <= rd_addr_i;
+      rd_data_o <= rd_data_d;
       start_pulse_o <= 1'b0;
       soft_reset_pulse_o <= 1'b0;
       clear_done_pulse_o <= 1'b0;
       clear_error_pulse_o <= 1'b0;
       clear_irq_pulse_o <= 1'b0;
-      if (wr_en_i) begin
-        unique case (wr_addr_i)
+      if (wr_en_q) begin
+        unique case (wr_addr_q)
           CTRL: begin
-            start_pulse_o <= wr_strb_i[0] && wr_data_i[0];
-            soft_reset_pulse_o <= wr_strb_i[0] && wr_data_i[1];
-            irq_en_o <= wr_strb_i[0] ? wr_data_i[2] : irq_en_o;
-            clear_done_pulse_o <= wr_strb_i[0] && wr_data_i[3];
-            clear_error_pulse_o <= wr_strb_i[0] && wr_data_i[4];
+            start_pulse_o <= wr_strb_q[0] && wr_data_q[0];
+            soft_reset_pulse_o <= wr_strb_q[0] && wr_data_q[1];
+            irq_en_o <= wr_strb_q[0] ? wr_data_q[2] : irq_en_o;
+            clear_done_pulse_o <= wr_strb_q[0] && wr_data_q[3];
+            clear_error_pulse_o <= wr_strb_q[0] && wr_data_q[4];
           end
-          M_SIZE: cfg_q.m_size <= apply_wstrb(cfg_q.m_size, wr_data_i, wr_strb_i);
-          N_SIZE: cfg_q.n_size <= apply_wstrb(cfg_q.n_size, wr_data_i, wr_strb_i);
-          K_SIZE: cfg_q.k_size <= apply_wstrb(cfg_q.k_size, wr_data_i, wr_strb_i);
-          PRECISION: if (wr_strb_i[0]) cfg_q.precision <= precision_e'(wr_data_i[1:0]);
-          POST_OP: if (wr_strb_i[0]) cfg_q.post_op <= post_op_e'(wr_data_i[1:0]);
-          SAT_MODE: if (wr_strb_i[0]) cfg_q.sat_mode <= sat_mode_e'(wr_data_i[0]);
-          A_BASE: cfg_q.a_base <= apply_wstrb(cfg_q.a_base, wr_data_i, wr_strb_i);
-          B_BASE: cfg_q.b_base <= apply_wstrb(cfg_q.b_base, wr_data_i, wr_strb_i);
-          C_BASE: cfg_q.c_base <= apply_wstrb(cfg_q.c_base, wr_data_i, wr_strb_i);
-          BIAS_BASE: cfg_q.bias_base <= apply_wstrb(cfg_q.bias_base, wr_data_i, wr_strb_i);
-          A_SPAD_OFFSET: cfg_q.a_spad_offset <= apply_wstrb(cfg_q.a_spad_offset, wr_data_i, wr_strb_i);
-          A_SPAD_SIZE: cfg_q.a_spad_size <= apply_wstrb(cfg_q.a_spad_size, wr_data_i, wr_strb_i);
-          B_SPAD_OFFSET: cfg_q.b_spad_offset <= apply_wstrb(cfg_q.b_spad_offset, wr_data_i, wr_strb_i);
-          B_SPAD_SIZE: cfg_q.b_spad_size <= apply_wstrb(cfg_q.b_spad_size, wr_data_i, wr_strb_i);
-          C_SPAD_OFFSET: cfg_q.c_spad_offset <= apply_wstrb(cfg_q.c_spad_offset, wr_data_i, wr_strb_i);
-          C_SPAD_SIZE: cfg_q.c_spad_size <= apply_wstrb(cfg_q.c_spad_size, wr_data_i, wr_strb_i);
-          BIAS_SPAD_OFFSET: cfg_q.bias_spad_offset <= apply_wstrb(cfg_q.bias_spad_offset, wr_data_i, wr_strb_i);
-          BIAS_SPAD_SIZE: cfg_q.bias_spad_size <= apply_wstrb(cfg_q.bias_spad_size, wr_data_i, wr_strb_i);
-          DMA_CFG: if (wr_strb_i[0]) cfg_q.burst_len <= wr_data_i[7:0];
-          IRQ_STATUS: clear_irq_pulse_o <= wr_strb_i[0] && wr_data_i[0];
+          M_SIZE: cfg_q.m_size <= apply_wstrb(cfg_q.m_size, wr_data_q, wr_strb_q);
+          N_SIZE: cfg_q.n_size <= apply_wstrb(cfg_q.n_size, wr_data_q, wr_strb_q);
+          K_SIZE: cfg_q.k_size <= apply_wstrb(cfg_q.k_size, wr_data_q, wr_strb_q);
+          PRECISION: if (wr_strb_q[0]) cfg_q.precision <= precision_e'(wr_data_q[1:0]);
+          POST_OP: if (wr_strb_q[0]) cfg_q.post_op <= post_op_e'(wr_data_q[1:0]);
+          SAT_MODE: if (wr_strb_q[0]) cfg_q.sat_mode <= sat_mode_e'(wr_data_q[0]);
+          A_BASE: cfg_q.a_base <= apply_wstrb(cfg_q.a_base, wr_data_q, wr_strb_q);
+          B_BASE: cfg_q.b_base <= apply_wstrb(cfg_q.b_base, wr_data_q, wr_strb_q);
+          C_BASE: cfg_q.c_base <= apply_wstrb(cfg_q.c_base, wr_data_q, wr_strb_q);
+          BIAS_BASE: cfg_q.bias_base <= apply_wstrb(cfg_q.bias_base, wr_data_q, wr_strb_q);
+          A_SPAD_OFFSET: cfg_q.a_spad_offset <= apply_wstrb(cfg_q.a_spad_offset, wr_data_q, wr_strb_q);
+          A_SPAD_SIZE: cfg_q.a_spad_size <= apply_wstrb(cfg_q.a_spad_size, wr_data_q, wr_strb_q);
+          B_SPAD_OFFSET: cfg_q.b_spad_offset <= apply_wstrb(cfg_q.b_spad_offset, wr_data_q, wr_strb_q);
+          B_SPAD_SIZE: cfg_q.b_spad_size <= apply_wstrb(cfg_q.b_spad_size, wr_data_q, wr_strb_q);
+          C_SPAD_OFFSET: cfg_q.c_spad_offset <= apply_wstrb(cfg_q.c_spad_offset, wr_data_q, wr_strb_q);
+          C_SPAD_SIZE: cfg_q.c_spad_size <= apply_wstrb(cfg_q.c_spad_size, wr_data_q, wr_strb_q);
+          BIAS_SPAD_OFFSET: cfg_q.bias_spad_offset <= apply_wstrb(cfg_q.bias_spad_offset, wr_data_q, wr_strb_q);
+          BIAS_SPAD_SIZE: cfg_q.bias_spad_size <= apply_wstrb(cfg_q.bias_spad_size, wr_data_q, wr_strb_q);
+          DMA_CFG: if (wr_strb_q[0]) cfg_q.burst_len <= wr_data_q[7:0];
+          IRQ_STATUS: clear_irq_pulse_o <= wr_strb_q[0] && wr_data_q[0];
           default: ;
         endcase
       end
-    end
-  end
-
-  always_comb begin
-    rd_data_o = 32'd0;
-    if (rd_en_i) begin
-      unique case (rd_addr_i)
-        CTRL: rd_data_o = {29'd0, irq_en_o, 2'd0};
-        STATUS: rd_data_o = {27'd0, status_i.overflow_seen, status_i.irq,
-                             status_i.error, status_i.done, status_i.busy};
-        M_SIZE: rd_data_o = cfg_q.m_size;
-        N_SIZE: rd_data_o = cfg_q.n_size;
-        K_SIZE: rd_data_o = cfg_q.k_size;
-        PRECISION: rd_data_o = {30'd0, cfg_q.precision};
-        POST_OP: rd_data_o = {30'd0, cfg_q.post_op};
-        SAT_MODE: rd_data_o = {31'd0, cfg_q.sat_mode};
-        A_BASE: rd_data_o = cfg_q.a_base;
-        B_BASE: rd_data_o = cfg_q.b_base;
-        C_BASE: rd_data_o = cfg_q.c_base;
-        BIAS_BASE: rd_data_o = cfg_q.bias_base;
-        A_SPAD_OFFSET: rd_data_o = cfg_q.a_spad_offset;
-        A_SPAD_SIZE: rd_data_o = cfg_q.a_spad_size;
-        B_SPAD_OFFSET: rd_data_o = cfg_q.b_spad_offset;
-        B_SPAD_SIZE: rd_data_o = cfg_q.b_spad_size;
-        C_SPAD_OFFSET: rd_data_o = cfg_q.c_spad_offset;
-        C_SPAD_SIZE: rd_data_o = cfg_q.c_spad_size;
-        BIAS_SPAD_OFFSET: rd_data_o = cfg_q.bias_spad_offset;
-        BIAS_SPAD_SIZE: rd_data_o = cfg_q.bias_spad_size;
-        DMA_CFG: rd_data_o = {24'd0, cfg_q.burst_len};
-        IRQ_STATUS: rd_data_o = {31'd0, status_i.irq};
-        OVF_COUNT: rd_data_o = ovf_count_i;
-        ERROR_CODE: rd_data_o = {28'd0, error_code_i};
-        default: rd_data_o = 32'd0;
-      endcase
     end
   end
 endmodule

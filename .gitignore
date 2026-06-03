@@ -18,6 +18,10 @@ tb/sim/ucli.key
 tb/sim/vc_hdrs.h
 tb/sim/env.*.xml
 
+# STA intermediate artifacts
+sta/build/
+sta/reports/
+
 # Common generated EDA artifacts
 csrc/
 *.daidir/

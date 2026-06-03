@@ -32,12 +32,13 @@ module axi_lite_slave #(
 );
   logic [ADDR_WIDTH-1:0] awaddr_q;
   logic aw_seen_q;
+  logic [1:0] rd_pending_q;
 
   assign s_axil_bresp = 2'b00;
   assign s_axil_rresp = 2'b00;
   assign s_axil_awready = !aw_seen_q;
   assign s_axil_wready = aw_seen_q && !s_axil_bvalid;
-  assign s_axil_arready = !s_axil_rvalid;
+  assign s_axil_arready = !s_axil_rvalid && (rd_pending_q == 2'd0);
   assign reg_wr_en_o = s_axil_wvalid && s_axil_wready;
   assign reg_wr_addr_o = awaddr_q;
   assign reg_wr_data_o = s_axil_wdata;
@@ -49,6 +50,7 @@ module axi_lite_slave #(
     if (!rst_n) begin
       awaddr_q <= '0;
       aw_seen_q <= 1'b0;
+      rd_pending_q <= 2'd0;
       s_axil_bvalid <= 1'b0;
       s_axil_rvalid <= 1'b0;
       s_axil_rdata <= '0;
@@ -64,6 +66,11 @@ module axi_lite_slave #(
         s_axil_bvalid <= 1'b0;
       end
       if (reg_rd_en_o) begin
+        rd_pending_q <= 2'd2;
+      end else if (rd_pending_q > 2'd1) begin
+        rd_pending_q <= rd_pending_q - 2'd1;
+      end else if (rd_pending_q == 2'd1) begin
+        rd_pending_q <= 2'd0;
         s_axil_rvalid <= 1'b1;
         s_axil_rdata <= reg_rd_data_i;
       end else if (s_axil_rvalid && s_axil_rready) begin

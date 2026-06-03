@@ -115,11 +115,14 @@ endif
 ###############################################################################
 # Runtime Options
 ###############################################################################
+USER_SIM_OPTS ?=
+
 SIM_OPTS = +ntb_random_seed=$(SEED)  \
            +UVM_TESTNAME=$(TESTNAME) \
            +UVM_VERBOSITY=$(VERB)    \
            +validation_cfg_filename=env/axi_config.cfg \
-           +vcs+watchdog+time=5ms
+           +vcs+watchdog+time=5ms    \
+           $(USER_SIM_OPTS)
 
 ###############################################################################
 # Targets
@@ -168,6 +171,7 @@ regression:
 	TB_TOP=$(TB_TOP)                \
 	FILELIST=$(FILELIST)            \
 	BUILD_NAME=$(BUILD_NAME)        \
+	COV=$(COV)                      \
 	$(REGRESSION_SCRIPT)
 
 verdi:
@@ -212,7 +216,7 @@ clean_reports:
 	rm -rf urgReport
 
 clean_misc:
-	rm -rf $(SIM)/DVEfiles $(SIM)/verdiLog $(SIM)/novas.* csrc *.daidir vc_hdrs.h ucli.key DVEfiles verdiLog novas* inter.vpd *.vpd *.fsdb *.vdb *.log
+	rm -rf $(SIM)/DVEfiles $(SIM)/verdiLog $(SIM)/novas.* csrc *.daidir vc_hdrs.h ucli.key DVEfiles verdiLog novas* inter.vpd *.vpd *.fsdb *.vdb *.log *.xml
 
 clean_all: clean clean_build clean_misc
 

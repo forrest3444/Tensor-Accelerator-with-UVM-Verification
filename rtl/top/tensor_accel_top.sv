@@ -79,6 +79,8 @@ module tensor_accel_top
   logic sched_init;
   logic sched_advance_k;
   logic sched_advance;
+  logic load_desc_req;
+  logic load_desc_valid;
   logic load_a_start;
   logic load_b_start;
   logic load_bias_start;
@@ -162,6 +164,8 @@ module tensor_accel_top
   logic [3:0] compute_count_q;
   logic compute_active_q;
   logic compute_done;
+  logic compute_array_done;
+  logic compute_array_done_q;
   logic compute_valid;
   logic [3:0] compute_k_limit;
   logic [31:0] row_base;
@@ -187,8 +191,8 @@ module tensor_accel_top
   logic [3:0][15:0] b_vec;
   logic [3:0][3:0][15:0] a_tile_q;
   logic [3:0][3:0][15:0] b_tile_q;
-  logic [3:0][3:0][31:0] array_acc;
-  logic [3:0][3:0][31:0] acc_tile;
+  logic signed [39:0] array_acc [3:0][3:0];
+  logic signed [39:0] acc_tile [3:0][3:0];
   logic [3:0][31:0] bias_vec;
   logic [3:0][31:0] bias_vec_q;
   logic [3:0][3:0][31:0] pp_result;
@@ -196,6 +200,7 @@ module tensor_accel_top
   logic array_overflow;
   logic post_process_overflow;
   logic pp_wb_active_q;
+  logic [7:0] post_process_start_pipe_q;
   logic [3:0] pp_wb_count_q;
   logic [1:0] pp_wb_row;
   logic [1:0] pp_wb_col;
@@ -226,7 +231,8 @@ module tensor_accel_top
   assign c_store_row_bytes = tile_cols << 2;
   assign compute_k_limit = (k_remaining > 32'd4) ? 4'd4 : k_remaining[3:0];
   assign compute_valid = compute_active_q && (compute_count_q < compute_k_limit);
-  assign compute_done = compute_active_q && (compute_count_q == compute_k_limit);
+  assign compute_array_done = compute_active_q && (compute_count_q == (compute_k_limit + 4'd3));
+  assign compute_done = compute_array_done_q;
   assign overflow = array_overflow || post_process_overflow;
   assign elem_b = elem_bytes(cfg.precision);
   assign a_start_byte = ((row_base * cfg.k_size) + k_base) * elem_b;
@@ -330,9 +336,11 @@ module tensor_accel_top
     .overflow_i(overflow),
     .last_tile_i(last_tile),
     .last_k_tile_i(last_k_tile),
+    .load_desc_valid_i(load_desc_valid),
     .sched_init_o(sched_init),
     .sched_advance_k_o(sched_advance_k),
     .sched_advance_o(sched_advance),
+    .load_desc_req_o(load_desc_req),
     .load_a_start_o(load_a_start),
     .load_b_start_o(load_b_start),
     .load_bias_start_o(load_bias_start),
@@ -364,10 +372,15 @@ module tensor_accel_top
   );
 
   load_scheduler u_load_scheduler (
+    .clk(clk),
+    .rst_n(rst_n),
+    .clear_i(soft_reset_pulse),
+    .req_i(load_desc_req),
     .cfg_i(cfg),
     .tile_m_i(tile_m),
     .tile_n_i(tile_n),
     .tile_k_i(tile_k),
+    .desc_valid_o(load_desc_valid),
     .a_addr_o(a_addr),
     .b_addr_o(b_addr),
     .bias_addr_o(bias_addr),
@@ -385,6 +398,7 @@ module tensor_accel_top
     .start_i(read_start),
     .ext_addr_i(read_addr),
     .byte_len_i(read_bytes),
+    .burst_len_i(cfg.burst_len),
     .spad_offset_i(read_spad_offset),
     .row_mode_i(read_row_mode),
     .row_count_i(read_row_count),
@@ -422,6 +436,7 @@ module tensor_accel_top
     .start_i(writer_start),
     .ext_addr_i(cfg.c_base + c_ext_offset + store_row_offset),
     .byte_len_i(c_store_row_bytes),
+    .burst_len_i(cfg.burst_len),
     .spad_offset_i(c_spad_offset[15:0] + store_row_offset[15:0]),
     .busy_o(write_busy),
     .done_o(writer_done),
@@ -517,6 +532,8 @@ module tensor_accel_top
   );
 
   post_process u_post_process (
+    .clk(clk),
+    .rst_n(rst_n),
     .post_op_i(cfg.post_op),
     .sat_mode_i(cfg.sat_mode),
     .acc_i(acc_tile),
@@ -665,7 +682,7 @@ module tensor_accel_top
       compute_count_q <= 4'd0;
     end else if (compute_active_q) begin
       compute_count_q <= compute_count_q + 1'b1;
-      if (compute_done) begin
+      if (compute_array_done) begin
         compute_active_q <= 1'b0;
       end
     end
@@ -673,13 +690,27 @@ module tensor_accel_top
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
+      compute_array_done_q <= 1'b0;
+    end else if (soft_reset_pulse) begin
+      compute_array_done_q <= 1'b0;
+    end else begin
+      compute_array_done_q <= compute_array_done;
+    end
+  end
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
       pp_wb_active_q <= 1'b0;
+      post_process_start_pipe_q <= 8'd0;
       pp_wb_count_q <= 4'd0;
     end else if (soft_reset_pulse) begin
       pp_wb_active_q <= 1'b0;
+      post_process_start_pipe_q <= 8'd0;
       pp_wb_count_q <= 4'd0;
     end else begin
-      if (post_process_start && !pp_wb_active_q) begin
+      post_process_start_pipe_q <= {post_process_start_pipe_q[6:0],
+                                    post_process_start && !pp_wb_active_q};
+      if (post_process_start_pipe_q[7] && !pp_wb_active_q) begin
         pp_wb_active_q <= 1'b1;
         pp_wb_count_q <= 4'd0;
       end else if (pp_wb_active_q && pp_spad_ready) begin

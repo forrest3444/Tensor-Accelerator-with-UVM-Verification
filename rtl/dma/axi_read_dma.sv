@@ -10,6 +10,7 @@ module axi_read_dma #(
   input  logic start_i,
   input  logic [AXI_ADDR_WIDTH-1:0] addr_i,
   input  logic [31:0] byte_len_i,
+  input  logic [7:0] burst_len_i,
   input  logic [SPAD_ADDR_WIDTH-1:0] spad_offset_i,
   output logic busy_o,
   output logic done_o,
@@ -45,8 +46,12 @@ module axi_read_dma #(
   localparam logic [SPAD_ADDR_WIDTH-1:0] SPAD_WORD_BYTES =
       SPAD_ADDR_WIDTH'(SPAD_DATA_WIDTH / 8);
 
-  typedef enum logic [1:0] {S_IDLE, S_AR, S_R, S_DONE} state_e;
-  state_e state_q, state_d;
+  localparam int S_IDLE = 0;
+  localparam int S_AR   = 1;
+  localparam int S_R    = 2;
+  localparam int S_DONE = 3;
+
+  logic [3:0] state_q, state_d;
   logic [7:0] burst_beats;
   logic [31:0] burst_bytes;
   logic splitter_valid;
@@ -67,47 +72,60 @@ module axi_read_dma #(
   ) u_splitter (
     .addr_i(split_addr),
     .bytes_i(split_bytes),
+    .burst_len_i(burst_len_i),
     .burst_beats_o(burst_beats),
     .burst_bytes_o(burst_bytes),
     .crosses_4kb_o(cross_4kb_o),
     .valid_o(splitter_valid)
   );
 
-  assign split_addr = (state_q == S_IDLE) ? addr_i : dma_addr_q;
-  assign split_bytes = (state_q == S_IDLE) ? byte_len_i : bytes_remaining_q;
+  assign split_addr = state_q[S_IDLE] ? addr_i : dma_addr_q;
+  assign split_bytes = state_q[S_IDLE] ? byte_len_i : bytes_remaining_q;
   assign m_axi_araddr = dma_addr_q;
   assign m_axi_arid = 1'b0;
   assign m_axi_arlen = burst_beats - 8'd1;
   assign m_axi_arsize = AXI_SIZE;
   assign m_axi_arburst = 2'b01;
-  assign m_axi_arvalid = (state_q == S_AR);
-  assign m_axi_rready = (state_q == S_R) && !write_words_q;
+  assign m_axi_arvalid = state_q[S_AR];
+  assign m_axi_rready = state_q[S_R] && !write_words_q;
 
   assign spad_req_o = write_words_q;
   assign spad_we_o = 1'b1;
   assign spad_addr_o = spad_addr_q;
   assign spad_wdata_o = rdata_q[beat_word_q*SPAD_DATA_WIDTH +: SPAD_DATA_WIDTH];
   assign spad_wstrb_o = '1;
-  assign busy_o = (state_q != S_IDLE) && (state_q != S_DONE);
-  assign done_o = (state_q == S_DONE);
+  assign busy_o = state_q[S_AR] || state_q[S_R];
+  assign done_o = state_q[S_DONE];
 
   always_comb begin
-    state_d = state_q;
-    unique case (state_q)
-      S_IDLE: if (start_i && splitter_valid) state_d = S_AR;
-      S_AR:   if (m_axi_arvalid && m_axi_arready) state_d = S_R;
-      S_R:    if (write_words_q && spad_ready_i && (beat_word_q == LAST_WORD) &&
-                  last_read_q) begin
-                state_d = (bytes_remaining_q == burst_bytes) ? S_DONE : S_AR;
-              end
-      S_DONE: state_d = S_IDLE;
-      default: state_d = S_IDLE;
+    state_d = 4'b0000;
+    unique case (1'b1)
+      state_q[S_IDLE]: begin
+        state_d[start_i && splitter_valid ? S_AR : S_IDLE] = 1'b1;
+      end
+      state_q[S_AR]: begin
+        state_d[(m_axi_arvalid && m_axi_arready) ? S_R : S_AR] = 1'b1;
+      end
+      state_q[S_R]: begin
+        if (write_words_q && spad_ready_i && (beat_word_q == LAST_WORD) &&
+            last_read_q) begin
+          state_d[(bytes_remaining_q == burst_bytes) ? S_DONE : S_AR] = 1'b1;
+        end else begin
+          state_d[S_R] = 1'b1;
+        end
+      end
+      state_q[S_DONE]: begin
+        state_d[S_IDLE] = 1'b1;
+      end
+      default: begin
+        state_d[S_IDLE] = 1'b1;
+      end
     endcase
   end
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      state_q <= S_IDLE;
+      state_q <= 4'b0001;
       error_o <= 1'b0;
       dma_addr_q <= '0;
       bytes_remaining_q <= 32'd0;
@@ -118,7 +136,7 @@ module axi_read_dma #(
       last_read_q <= 1'b0;
     end else begin
       state_q <= state_d;
-      if (state_q == S_IDLE && start_i) begin
+      if (state_q[S_IDLE] && start_i) begin
         error_o <= !splitter_valid;
         dma_addr_q <= addr_i;
         bytes_remaining_q <= byte_len_i;

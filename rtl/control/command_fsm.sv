@@ -23,9 +23,11 @@ module command_fsm
   input  logic overflow_i,
   input  logic last_tile_i,
   input  logic last_k_tile_i,
+  input  logic load_desc_valid_i,
   output logic sched_init_o,
   output logic sched_advance_k_o,
   output logic sched_advance_o,
+  output logic load_desc_req_o,
   output logic load_a_start_o,
   output logic load_b_start_o,
   output logic load_bias_start_o,
@@ -36,12 +38,18 @@ module command_fsm
   output error_code_e error_code_o,
   output logic [31:0] ovf_count_o
 );
-  typedef enum logic [3:0] {
+  typedef enum logic [4:0] {
     ST_IDLE,
     ST_CHECK_CONFIG,
     ST_PREPARE_TILE,
+    ST_REQ_A_TILE,
+    ST_WAIT_A_DESC,
     ST_LOAD_A_TILE,
+    ST_REQ_B_TILE,
+    ST_WAIT_B_DESC,
     ST_LOAD_B_TILE,
+    ST_REQ_BIAS,
+    ST_WAIT_BIAS_DESC,
     ST_LOAD_BIAS,
     ST_COMPUTE_TILE,
     ST_NEXT_K_TILE,
@@ -68,6 +76,7 @@ module command_fsm
     sched_init_o = 1'b0;
     sched_advance_k_o = 1'b0;
     sched_advance_o = 1'b0;
+    load_desc_req_o = 1'b0;
     load_a_start_o = 1'b0;
     load_b_start_o = 1'b0;
     load_bias_start_o = 1'b0;
@@ -85,17 +94,41 @@ module command_fsm
       end
       ST_PREPARE_TILE: begin
         sched_init_o = 1'b1;
-        state_d = ST_LOAD_A_TILE;
+        state_d = ST_REQ_A_TILE;
+      end
+      ST_REQ_A_TILE: begin
+        load_desc_req_o = 1'b1;
+        state_d = ST_WAIT_A_DESC;
+      end
+      ST_WAIT_A_DESC: begin
+        if (timeout_hit) state_d = ST_ERROR;
+        else if (load_desc_valid_i) state_d = ST_LOAD_A_TILE;
       end
       ST_LOAD_A_TILE: begin
         load_a_start_o = 1'b1;
         if (read_dma_error_i || read_cross_4kb_i || timeout_hit) state_d = ST_ERROR;
-        else if (read_dma_done_i) state_d = ST_LOAD_B_TILE;
+        else if (read_dma_done_i) state_d = ST_REQ_B_TILE;
+      end
+      ST_REQ_B_TILE: begin
+        load_desc_req_o = 1'b1;
+        state_d = ST_WAIT_B_DESC;
+      end
+      ST_WAIT_B_DESC: begin
+        if (timeout_hit) state_d = ST_ERROR;
+        else if (load_desc_valid_i) state_d = ST_LOAD_B_TILE;
       end
       ST_LOAD_B_TILE: begin
         load_b_start_o = 1'b1;
         if (read_dma_error_i || read_cross_4kb_i || timeout_hit) state_d = ST_ERROR;
-        else if (read_dma_done_i) state_d = bias_enabled(cfg_i.post_op) ? ST_LOAD_BIAS : ST_COMPUTE_TILE;
+        else if (read_dma_done_i) state_d = bias_enabled(cfg_i.post_op) ? ST_REQ_BIAS : ST_COMPUTE_TILE;
+      end
+      ST_REQ_BIAS: begin
+        load_desc_req_o = 1'b1;
+        state_d = ST_WAIT_BIAS_DESC;
+      end
+      ST_WAIT_BIAS_DESC: begin
+        if (timeout_hit) state_d = ST_ERROR;
+        else if (load_desc_valid_i) state_d = ST_LOAD_BIAS;
       end
       ST_LOAD_BIAS: begin
         load_bias_start_o = 1'b1;
@@ -112,7 +145,7 @@ module command_fsm
       end
       ST_NEXT_K_TILE: begin
         sched_advance_k_o = 1'b1;
-        state_d = ST_LOAD_A_TILE;
+        state_d = ST_REQ_A_TILE;
       end
       ST_POST_PROCESS_TILE: begin
         post_process_start_o = 1'b1;
@@ -128,7 +161,7 @@ module command_fsm
         if (last_tile_i) state_d = ST_DONE;
         else begin
           sched_advance_o = 1'b1;
-          state_d = ST_LOAD_A_TILE;
+          state_d = ST_REQ_A_TILE;
         end
       end
       ST_DONE: begin
@@ -166,8 +199,10 @@ module command_fsm
       status_q.busy <= (state_d != ST_IDLE) && (state_d != ST_DONE) && (state_d != ST_ERROR);
       status_q.done <= (state_d == ST_DONE) ? 1'b1 : (clear_done_i ? 1'b0 : status_q.done);
       status_q.error <= (state_d == ST_ERROR) ? 1'b1 : (clear_error_i ? 1'b0 : status_q.error);
-      status_q.irq <= (((state_d == ST_DONE) || (state_d == ST_ERROR)) && irq_en_i) ? 1'b1 :
-                      ((clear_irq_i || clear_done_i || clear_error_i) ? 1'b0 : status_q.irq);
+      status_q.irq <= (clear_irq_i || clear_done_i || clear_error_i) ? 1'b0 :
+                      ((((state_q != ST_DONE) && (state_d == ST_DONE)) ||
+                        ((state_q != ST_ERROR) && (state_d == ST_ERROR))) && irq_en_i) ?
+                       1'b1 : status_q.irq;
 
       if (start_i && state_q != ST_IDLE) begin
         error_q <= ERR_COMMAND_WHILE_BUSY;
@@ -196,7 +231,9 @@ module command_fsm
 
       if (state_d == state_q &&
           (state_q == ST_LOAD_A_TILE || state_q == ST_LOAD_B_TILE ||
-           state_q == ST_LOAD_BIAS || state_q == ST_COMPUTE_TILE ||
+           state_q == ST_LOAD_BIAS || state_q == ST_WAIT_A_DESC ||
+           state_q == ST_WAIT_B_DESC || state_q == ST_WAIT_BIAS_DESC ||
+           state_q == ST_COMPUTE_TILE ||
            state_q == ST_POST_PROCESS_TILE || state_q == ST_STORE_TILE)) begin
         watchdog_q <= watchdog_q + 1'b1;
       end else begin

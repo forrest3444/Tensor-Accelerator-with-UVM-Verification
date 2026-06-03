@@ -6,38 +6,54 @@ module mac_unit (
   input  logic        precision_i,
   input  logic [15:0] a_i,
   input  logic [15:0] b_i,
-  output logic [31:0] acc_o,
+  output logic signed [39:0] acc_o,
   output logic        overflow_o
 );
-  logic signed [31:0] a_ext;
-  logic signed [31:0] b_ext;
-  logic signed [31:0] product;
-  logic signed [32:0] sum_ext;
+  logic signed [15:0] a_mul;
+  logic signed [15:0] b_mul;
+  logic signed [31:0] product_d;
+  logic signed [31:0] product_q;
+  logic signed [39:0] product_ext;
+  logic signed [40:0] sum_ext;
   logic               add_overflow;
+  logic               valid_q;
 
   always_comb begin
     if (precision_i) begin
-      a_ext = {{16{a_i[15]}}, a_i};
-      b_ext = {{16{b_i[15]}}, b_i};
+      a_mul = a_i;
+      b_mul = b_i;
     end else begin
-      a_ext = {{24{a_i[7]}}, a_i[7:0]};
-      b_ext = {{24{b_i[7]}}, b_i[7:0]};
+      a_mul = {{8{a_i[7]}}, a_i[7:0]};
+      b_mul = {{8{b_i[7]}}, b_i[7:0]};
     end
-    product = a_ext * b_ext;
-    sum_ext = {acc_o[31], acc_o} + {product[31], product};
-    add_overflow = (sum_ext > 33'sd2147483647) || (sum_ext < -33'sd2147483648);
+    product_d = a_mul * b_mul;
+
+    product_ext = {{8{product_q[31]}}, product_q};
+    sum_ext = {acc_o[39], acc_o} + {product_ext[39], product_ext};
+
+    // overflow_o tracks signed int32 range overflow of the accumulated value.
+    add_overflow = (sum_ext[40:31] != {10{sum_ext[31]}});
   end
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      acc_o <= 32'd0;
+      product_q <= 32'sd0;
+      valid_q <= 1'b0;
+      acc_o <= 40'sd0;
       overflow_o <= 1'b0;
     end else if (clear_i) begin
-      acc_o <= 32'd0;
+      product_q <= 32'sd0;
+      valid_q <= 1'b0;
+      acc_o <= 40'sd0;
       overflow_o <= 1'b0;
-    end else if (valid_i) begin
-      acc_o <= $signed(acc_o) + product;
-      overflow_o <= overflow_o || add_overflow;
+    end else begin
+      product_q <= product_d;
+      valid_q <= valid_i;
+
+      if (valid_q) begin
+        acc_o <= sum_ext[39:0];
+        overflow_o <= overflow_o || add_overflow;
+      end
     end
   end
 endmodule

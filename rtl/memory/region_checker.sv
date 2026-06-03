@@ -63,7 +63,7 @@ module region_checker
     precision_ok = (cfg_i.precision == PREC_INT8) || (cfg_i.precision == PREC_INT16);
     align_ok = ((cfg_i.a_base % beat_bytes) == 0) &&
                ((cfg_i.b_base % beat_bytes) == 0) &&
-               ((cfg_i.c_base % beat_bytes) == 0) &&
+               (cfg_i.c_base[1:0] == 2'b00) &&
                (!bias_enabled(cfg_i.post_op) || ((cfg_i.bias_base % beat_bytes) == 0)) &&
                ((cfg_i.a_spad_offset[1:0] == 2'b00) &&
                 (cfg_i.b_spad_offset[1:0] == 2'b00) &&

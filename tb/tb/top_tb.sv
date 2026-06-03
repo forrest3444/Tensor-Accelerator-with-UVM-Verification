@@ -6,6 +6,7 @@ module top_tb;
   svt_axi_if axi_if();
   logic [1:0] dut_s_axil_bresp;
   logic [1:0] dut_s_axil_rresp;
+  logic dut_m_axi_rvalid;
   logic [7:0] dut_m_axi_arlen;
   logic [7:0] dut_m_axi_awlen;
   localparam int AXIL_DATA_IF_WIDTH = $bits(axi_if.master_if[0].rdata);
@@ -34,6 +35,11 @@ module top_tb;
   assign axi_if.slave_if[0].awregion = '0;
   assign axi_if.slave_if[0].awuser = '0;
   assign axi_if.slave_if[0].wuser = '0;
+  assign dut_if.load_active = u_dut.read_busy;
+  assign dut_if.compute_active = u_dut.compute_active_q;
+  assign dut_if.store_active = u_dut.store_active_q;
+  assign dut_m_axi_rvalid = dut_if.force_axi_rvalid_low ? 1'b0 : axi_if.slave_if[0].rvalid;
+  assign dut_if.axi_rvalid_to_dut = dut_m_axi_rvalid;
 
   if (AXIL_DATA_IF_WIDTH > 32) begin : gen_axil_tieoffs
     assign axi_if.master_if[0].rdata[AXIL_DATA_IF_WIDTH-1:32] = '0;
@@ -64,6 +70,7 @@ module top_tb;
 
   initial begin
     dut_if.rst_n = 1'b0;
+    dut_if.force_axi_rvalid_low = 1'b0;
     repeat (8) @(posedge clk);
     dut_if.rst_n = 1'b1;
   end
@@ -106,7 +113,7 @@ module top_tb;
     .m_axi_rid(axi_if.slave_if[0].rid[0]),
     .m_axi_rresp(axi_if.slave_if[0].rresp[1:0]),
     .m_axi_rlast(axi_if.slave_if[0].rlast),
-    .m_axi_rvalid(axi_if.slave_if[0].rvalid),
+    .m_axi_rvalid(dut_m_axi_rvalid),
     .m_axi_rready(axi_if.slave_if[0].rready),
 
     .m_axi_awaddr(axi_if.slave_if[0].awaddr[31:0]),
