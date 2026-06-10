@@ -308,6 +308,8 @@ module tensor_accel_top
   );
 
   region_checker u_region_checker (
+    .clk(clk),
+    .rst_n(rst_n),
     .cfg_i(cfg),
     .valid_o(cfg_valid),
     .error_code_o(cfg_error)
