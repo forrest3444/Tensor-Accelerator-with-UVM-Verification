@@ -164,16 +164,39 @@ class tensor_matmul_vseq extends base_vseq;
     bit [7:0] a_bytes[];
     bit [7:0] b_bytes[];
     int unsigned elem_b;
+    int unsigned panel_row_stride;
 
     elem_b = elem_bytes_local();
-    a_bytes = new[m_size * k_size * elem_b];
-    b_bytes = new[k_size * n_size * elem_b];
+    panel_row_stride = align8_local(k_size * elem_b);
+    a_bytes = new[m_size * panel_row_stride];
+    b_bytes = new[n_size * panel_row_stride];
 
-    foreach (a_data[idx]) begin
-      pack_elem_le(a_data[idx], a_bytes, idx * elem_b);
+    foreach (a_bytes[idx]) begin
+      a_bytes[idx] = 8'd0;
     end
-    foreach (b_data[idx]) begin
-      pack_elem_le(b_data[idx], b_bytes, idx * elem_b);
+    foreach (b_bytes[idx]) begin
+      b_bytes[idx] = 8'd0;
+    end
+
+    for (int row = 0; row < m_size; row++) begin
+      for (int kk = 0; kk < k_size; kk++) begin
+        int unsigned src_idx;
+        int unsigned dst_byte;
+
+        src_idx = (row * k_size) + kk;
+        dst_byte = (row * panel_row_stride) + (kk * elem_b);
+        pack_elem_le(a_data[src_idx], a_bytes, dst_byte);
+      end
+    end
+    for (int col = 0; col < n_size; col++) begin
+      for (int kk = 0; kk < k_size; kk++) begin
+        int unsigned src_idx;
+        int unsigned dst_byte;
+
+        src_idx = (kk * n_size) + col;
+        dst_byte = (col * panel_row_stride) + (kk * elem_b);
+        pack_elem_le(b_data[src_idx], b_bytes, dst_byte);
+      end
     end
 
     env.axi_system_env.slave[0].write_num_byte(a_base, a_bytes.size(), a_bytes);
@@ -254,6 +277,60 @@ class tensor_matmul_vseq extends base_vseq;
   endtask
 
   virtual task post_done_checks();
+    report_performance_counters();
+  endtask
+
+  virtual task report_performance_counters();
+    uvm_reg_data_t total_cycles;
+    uvm_reg_data_t load_cycles;
+    uvm_reg_data_t compute_cycles;
+    uvm_reg_data_t post_cycles;
+    uvm_reg_data_t store_cycles;
+    uvm_reg_data_t idle_cycles;
+    uvm_reg_data_t read_bytes;
+    uvm_reg_data_t write_bytes;
+    uvm_reg_data_t tile_count;
+    uvm_reg_data_t read_bursts;
+    uvm_reg_data_t write_bursts;
+    uvm_reg_data_t read_stall;
+    uvm_reg_data_t write_stall;
+    uvm_reg_data_t spad_stall;
+
+    ral_read(reg_model.PERF_TOTAL, total_cycles);
+    ral_read(reg_model.PERF_LOAD, load_cycles);
+    ral_read(reg_model.PERF_COMPUTE, compute_cycles);
+    ral_read(reg_model.PERF_POST, post_cycles);
+    ral_read(reg_model.PERF_STORE, store_cycles);
+    ral_read(reg_model.PERF_IDLE, idle_cycles);
+    ral_read(reg_model.PERF_RD_BYTES, read_bytes);
+    ral_read(reg_model.PERF_WR_BYTES, write_bytes);
+    ral_read(reg_model.PERF_TILE_COUNT, tile_count);
+    ral_read(reg_model.PERF_RD_BURSTS, read_bursts);
+    ral_read(reg_model.PERF_WR_BURSTS, write_bursts);
+    ral_read(reg_model.PERF_RD_STALL, read_stall);
+    ral_read(reg_model.PERF_WR_STALL, write_stall);
+    ral_read(reg_model.PERF_SPAD_STALL, spad_stall);
+
+    `uvm_info("PERF_BASELINE",
+              $sformatf("m=%0d n=%0d k=%0d precision=%0d total=%0d load=%0d compute=%0d post=%0d store=%0d idle=%0d rd_bytes=%0d wr_bytes=%0d tiles=%0d rd_bursts=%0d wr_bursts=%0d rd_stall=%0d wr_stall=%0d spad_stall=%0d",
+                        m_size, n_size, k_size, precision,
+                        total_cycles, load_cycles, compute_cycles, post_cycles,
+                        store_cycles, idle_cycles, read_bytes, write_bytes,
+                        tile_count, read_bursts, write_bursts,
+                        read_stall, write_stall, spad_stall),
+              UVM_LOW)
+
+    if ((total_cycles == 0) || (load_cycles == 0) || (compute_cycles == 0) ||
+        (store_cycles == 0) || (read_bytes == 0) || (write_bytes == 0) ||
+        (tile_count == 0)) begin
+      `uvm_error(get_type_name(),
+                 $sformatf("Performance counters did not advance as expected: total=%0d load=%0d compute=%0d store=%0d rd_bytes=%0d wr_bytes=%0d tiles=%0d",
+                           total_cycles, load_cycles, compute_cycles, store_cycles,
+                           read_bytes, write_bytes, tile_count))
+      if (cfg != null) cfg.add_seq_check_error();
+    end else if (cfg != null) begin
+      cfg.add_seq_check_count();
+    end
   endtask
 
   virtual function int signed pattern_value(input int unsigned row,
@@ -308,6 +385,10 @@ class tensor_matmul_vseq extends base_vseq;
 
   virtual function int unsigned elem_bytes_local();
     return (precision == PREC_INT16) ? 2 : 1;
+  endfunction
+
+  virtual function int unsigned align8_local(input int unsigned value);
+    return (value + 7) & ~7;
   endfunction
 
   virtual function int signed wrap_int32(longint signed value);

@@ -30,17 +30,39 @@ class tensor_non_aligned_vseq extends tensor_matmul_vseq;
     bit [7:0] b_bytes[];
     int unsigned a_active_bytes;
     int unsigned b_active_bytes;
+    int unsigned panel_row_stride;
 
-    a_active_bytes = m_size * k_size;
-    b_active_bytes = k_size * n_size;
+    panel_row_stride = align8_local(k_size);
+    a_active_bytes = m_size * panel_row_stride;
+    b_active_bytes = n_size * panel_row_stride;
     a_bytes = new[a_active_bytes + INPUT_GUARD_BYTES];
     b_bytes = new[b_active_bytes + INPUT_GUARD_BYTES];
 
     foreach (a_bytes[i]) begin
-      a_bytes[i] = (i < a_active_bytes) ? int8_to_byte(a_data[i]) : INPUT_POISON_BYTE;
+      a_bytes[i] = (i < a_active_bytes) ? 8'd0 : INPUT_POISON_BYTE;
     end
     foreach (b_bytes[i]) begin
-      b_bytes[i] = (i < b_active_bytes) ? int8_to_byte(b_data[i]) : INPUT_POISON_BYTE;
+      b_bytes[i] = (i < b_active_bytes) ? 8'd0 : INPUT_POISON_BYTE;
+    end
+    for (int row = 0; row < m_size; row++) begin
+      for (int kk = 0; kk < k_size; kk++) begin
+        int unsigned src_idx;
+        int unsigned dst_idx;
+
+        src_idx = (row * k_size) + kk;
+        dst_idx = (row * panel_row_stride) + kk;
+        a_bytes[dst_idx] = int8_to_byte(a_data[src_idx]);
+      end
+    end
+    for (int col = 0; col < n_size; col++) begin
+      for (int kk = 0; kk < k_size; kk++) begin
+        int unsigned src_idx;
+        int unsigned dst_idx;
+
+        src_idx = (kk * n_size) + col;
+        dst_idx = (col * panel_row_stride) + kk;
+        b_bytes[dst_idx] = int8_to_byte(b_data[src_idx]);
+      end
     end
 
     env.axi_system_env.slave[0].write_num_byte(a_base, a_bytes.size(), a_bytes);
