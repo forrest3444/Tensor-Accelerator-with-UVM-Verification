@@ -1,4 +1,11 @@
-module tensor_loader (
+module tensor_loader #(
+  parameter int AXI_ADDR_WIDTH = 32,
+  parameter int AXI_DATA_WIDTH = 64,
+  parameter int SPAD_ADDR_WIDTH = 16,
+  parameter int SPAD_DATA_WIDTH = 32,
+  parameter int MAX_BURST_BEATS = 16,
+  parameter bit READ_AUTO_SPLIT_4KB = 1'b0
+) (
   input  logic clk,
   input  logic rst_n,
   input  logic start_i,
@@ -109,7 +116,14 @@ module tensor_loader (
   assign error_o = error_q || dma_error;
   assign cross_4kb_o = cross_4kb_q || dma_cross_4kb;
 
-  axi_read_dma u_axi_read_dma (
+  axi_read_dma #(
+    .AXI_ADDR_WIDTH(AXI_ADDR_WIDTH),
+    .AXI_DATA_WIDTH(AXI_DATA_WIDTH),
+    .SPAD_ADDR_WIDTH(SPAD_ADDR_WIDTH),
+    .SPAD_DATA_WIDTH(SPAD_DATA_WIDTH),
+    .MAX_BURST_BEATS(MAX_BURST_BEATS),
+    .AUTO_SPLIT_4KB(READ_AUTO_SPLIT_4KB)
+  ) u_axi_read_dma (
     .clk(clk),
     .rst_n(rst_n),
     .start_i(dma_start),

@@ -14,6 +14,7 @@ module reg_file
   input  accel_status_t status_i,
   input  error_code_e error_code_i,
   input  logic [31:0] ovf_count_i,
+  input  perf_counter_t perf_i,
   output accel_cfg_t cfg_o,
   output logic start_pulse_o,
   output logic soft_reset_pulse_o,
@@ -46,6 +47,20 @@ module reg_file
   localparam logic [15:0] IRQ_STATUS       = 16'h0054;
   localparam logic [15:0] OVF_COUNT        = 16'h0058;
   localparam logic [15:0] ERROR_CODE       = 16'h005c;
+  localparam logic [15:0] PERF_TOTAL       = 16'h0060;
+  localparam logic [15:0] PERF_LOAD        = 16'h0064;
+  localparam logic [15:0] PERF_COMPUTE     = 16'h0068;
+  localparam logic [15:0] PERF_POST        = 16'h006c;
+  localparam logic [15:0] PERF_STORE       = 16'h0070;
+  localparam logic [15:0] PERF_IDLE        = 16'h0074;
+  localparam logic [15:0] PERF_RD_BYTES    = 16'h0078;
+  localparam logic [15:0] PERF_WR_BYTES    = 16'h007c;
+  localparam logic [15:0] PERF_TILE_COUNT  = 16'h0080;
+  localparam logic [15:0] PERF_RD_BURSTS   = 16'h0084;
+  localparam logic [15:0] PERF_WR_BURSTS   = 16'h0088;
+  localparam logic [15:0] PERF_RD_STALL    = 16'h008c;
+  localparam logic [15:0] PERF_WR_STALL    = 16'h0090;
+  localparam logic [15:0] PERF_SPAD_STALL  = 16'h0094;
 
   accel_cfg_t cfg_q;
   logic wr_en_q;
@@ -102,6 +117,20 @@ module reg_file
         IRQ_STATUS: rd_data_d = {31'd0, status_i.irq};
         OVF_COUNT: rd_data_d = ovf_count_i;
         ERROR_CODE: rd_data_d = {28'd0, error_code_i};
+        PERF_TOTAL: rd_data_d = perf_i.total_cycles;
+        PERF_LOAD: rd_data_d = perf_i.load_cycles;
+        PERF_COMPUTE: rd_data_d = perf_i.compute_cycles;
+        PERF_POST: rd_data_d = perf_i.post_process_cycles;
+        PERF_STORE: rd_data_d = perf_i.store_cycles;
+        PERF_IDLE: rd_data_d = perf_i.idle_or_wait_cycles;
+        PERF_RD_BYTES: rd_data_d = perf_i.axi_read_bytes;
+        PERF_WR_BYTES: rd_data_d = perf_i.axi_write_bytes;
+        PERF_TILE_COUNT: rd_data_d = perf_i.tile_count;
+        PERF_RD_BURSTS: rd_data_d = perf_i.read_burst_count;
+        PERF_WR_BURSTS: rd_data_d = perf_i.write_burst_count;
+        PERF_RD_STALL: rd_data_d = perf_i.stall_on_axi_read;
+        PERF_WR_STALL: rd_data_d = perf_i.stall_on_axi_write;
+        PERF_SPAD_STALL: rd_data_d = perf_i.stall_on_spad;
         default: rd_data_d = 32'd0;
       endcase
     end

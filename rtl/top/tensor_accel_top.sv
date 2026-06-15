@@ -1,5 +1,15 @@
 module tensor_accel_top
   import tensor_pkg::*;
+#(
+  parameter int TILE_M = ARRAY_M,
+  parameter int TILE_N = ARRAY_N,
+  parameter int TILE_K = ARRAY_M,
+  parameter int OUT_BYTES = 4,
+  parameter int BIAS_BYTES = 4,
+  parameter int COMPUTE_PIPE_LATENCY = 3,
+  parameter int MAX_BURST_BEATS = 16,
+  parameter bit READ_AUTO_SPLIT_4KB = 1'b0
+) 
 (
   input  logic clk,
   input  logic rst_n,
@@ -57,6 +67,7 @@ module tensor_accel_top
 );
   accel_cfg_t cfg;
   accel_status_t status;
+  perf_counter_t perf;
   error_code_e cfg_error;
   error_code_e error_code;
   logic [31:0] ovf_count;
@@ -79,8 +90,8 @@ module tensor_accel_top
   logic sched_init;
   logic sched_advance_k;
   logic sched_advance;
-  logic load_desc_req;
-  logic load_desc_valid;
+  logic load_tile_start;
+  logic load_tile_done;
   logic load_a_start;
   logic load_b_start;
   logic load_bias_start;
@@ -94,8 +105,8 @@ module tensor_accel_top
   logic last_tile;
   logic first_k_tile;
   logic last_k_tile;
-  logic [3:0] row_valid;
-  logic [3:0] col_valid;
+  logic [TILE_M-1:0] row_valid;
+  logic [TILE_N-1:0] col_valid;
   logic [31:0] c_spad_offset;
   logic [31:0] c_ext_offset;
   logic [31:0] a_addr;
@@ -161,23 +172,20 @@ module tensor_accel_top
   logic [31:0] spad_rdata;
   logic spad_ready;
 
-  logic [3:0] compute_count_q;
+  logic [7:0] compute_count_q;
   logic compute_active_q;
   logic compute_done;
   logic compute_array_done;
   logic compute_array_done_q;
+  logic compute_launch;
   logic compute_valid;
-  logic [3:0] compute_k_limit;
+  logic [7:0] compute_k_limit;
   logic [31:0] row_base;
-  logic [31:0] k_base;
-  logic [31:0] k_remaining;
   logic [31:0] col_base;
   logic [31:0] tile_rows;
   logic [31:0] tile_cols;
   logic [31:0] c_write_bytes;
   logic [31:0] elem_b;
-  logic [31:0] a_start_byte;
-  logic [31:0] b_start_byte;
   logic [31:0] a_row_bytes;
   logic [31:0] b_row_bytes;
   logic [31:0] a_spad_stride;
@@ -187,15 +195,15 @@ module tensor_accel_top
   logic [31:0] read_spad_row_stride;
   logic [2:0] read_row_count;
   logic read_row_mode;
-  logic [3:0][15:0] a_vec;
-  logic [3:0][15:0] b_vec;
-  logic [3:0][3:0][15:0] a_tile_q;
-  logic [3:0][3:0][15:0] b_tile_q;
-  logic signed [39:0] array_acc [3:0][3:0];
-  logic signed [39:0] acc_tile [3:0][3:0];
-  logic [3:0][31:0] bias_vec;
-  logic [3:0][31:0] bias_vec_q;
-  logic [3:0][3:0][31:0] pp_result;
+  logic [TILE_M-1:0][15:0] a_vec;
+  logic [TILE_N-1:0][15:0] b_vec;
+  logic [TILE_M-1:0][MAX_DIM-1:0][15:0] a_panel_q;
+  logic [MAX_DIM-1:0][TILE_N-1:0][15:0] b_panel_q;
+  logic signed [39:0] array_acc [TILE_M-1:0][TILE_N-1:0];
+  logic signed [39:0] acc_tile [TILE_M-1:0][TILE_N-1:0];
+  logic [TILE_N-1:0][31:0] bias_vec;
+  logic [TILE_N-1:0][31:0] bias_vec_q;
+  logic [TILE_M-1:0][TILE_N-1:0][31:0] pp_result;
   logic overflow;
   logic array_overflow;
   logic post_process_overflow;
@@ -206,6 +214,14 @@ module tensor_accel_top
   logic [1:0] pp_wb_col;
   logic [4:0] pp_wb_elems;
   logic pp_wb_last;
+  logic perf_active_q;
+  logic read_launch;
+  logic write_launch;
+  logic load_perf_active;
+  logic compute_perf_active;
+  logic post_perf_active;
+  logic store_perf_active;
+  logic phase_accounted;
 
   assign irq = status.irq;
   assign read_start = load_a_start || load_b_start || load_bias_start;
@@ -221,40 +237,45 @@ module tensor_accel_top
   assign writer_spad_rdata = dma_spad_rdata;
   assign ctrl_spad_ready = dma_spad_ready && !writer_spad_req;
   assign writer_spad_ready = dma_spad_ready && writer_spad_req;
-  assign row_base = {26'd0, tile_m} << 2;
-  assign k_base = {26'd0, tile_k} << 2;
-  assign k_remaining = cfg.k_size - k_base;
-  assign col_base = {26'd0, tile_n} << 2;
-  assign tile_rows = (cfg.m_size - row_base > 32'd4) ? 32'd4 : (cfg.m_size - row_base);
-  assign tile_cols = (cfg.n_size - col_base > 32'd4) ? 32'd4 : (cfg.n_size - col_base);
-  assign c_write_bytes = tile_rows * tile_cols * 32'd4;
-  assign c_store_row_bytes = tile_cols << 2;
-  assign compute_k_limit = (k_remaining > 32'd4) ? 4'd4 : k_remaining[3:0];
+  assign row_base = {26'd0, tile_m} * 32'(TILE_M);
+  assign col_base = {26'd0, tile_n} * 32'(TILE_N);
+  assign tile_rows = (cfg.m_size - row_base > 32'(TILE_M)) ? 32'(TILE_M) : (cfg.m_size - row_base);
+  assign tile_cols = (cfg.n_size - col_base > 32'(TILE_N)) ? 32'(TILE_N) : (cfg.n_size - col_base);
+  assign c_write_bytes = tile_rows * tile_cols * 32'(OUT_BYTES);
+  assign c_store_row_bytes = tile_cols * 32'(OUT_BYTES);
+  assign compute_k_limit = cfg.k_size[7:0];
   assign compute_valid = compute_active_q && (compute_count_q < compute_k_limit);
-  assign compute_array_done = compute_active_q && (compute_count_q == (compute_k_limit + 4'd3));
+  assign compute_array_done = compute_active_q &&
+                              (compute_count_q == (compute_k_limit + 8'(COMPUTE_PIPE_LATENCY)));
   assign compute_done = compute_array_done_q;
+  assign compute_launch = compute_start && !compute_active_q && !compute_done;
   assign overflow = array_overflow || post_process_overflow;
   assign elem_b = elem_bytes(cfg.precision);
-  assign a_start_byte = ((row_base * cfg.k_size) + k_base) * elem_b;
-  assign b_start_byte = ((k_base * cfg.n_size) + col_base) * elem_b;
-  assign a_row_bytes = {28'd0, compute_k_limit} * elem_b;
-  assign b_row_bytes = tile_cols * elem_b;
-  assign a_spad_stride = (a_row_bytes + 32'd14) & 32'hffff_fff8;
-  assign b_spad_stride = (b_row_bytes + 32'd14) & 32'hffff_fff8;
+  assign a_row_bytes = {24'd0, compute_k_limit} * elem_b;
+  assign b_row_bytes = {24'd0, compute_k_limit} * elem_b;
+  assign a_spad_stride = align8_bytes(a_row_bytes);
+  assign b_spad_stride = align8_bytes(b_row_bytes);
   assign read_row_mode = load_a_start || load_b_start;
   assign read_row_count = load_a_start ? tile_rows[2:0] :
-                          (load_b_start ? compute_k_limit[2:0] : 3'd1);
-  assign read_row_bytes = load_a_start ? a_row_bytes :
-                          (load_b_start ? b_row_bytes : read_bytes);
-  assign read_ext_row_stride = load_a_start ? (cfg.k_size * elem_b) :
-                               (load_b_start ? (cfg.n_size * elem_b) : 32'd0);
+                          (load_b_start ? tile_cols[2:0] : 3'd1);
+  assign read_row_bytes = load_a_start ? a_spad_stride :
+                          (load_b_start ? b_spad_stride : read_bytes);
+  assign read_ext_row_stride = load_a_start ? a_spad_stride :
+                               (load_b_start ? b_spad_stride : 32'd0);
   assign read_spad_row_stride = load_a_start ? a_spad_stride :
                                 (load_b_start ? b_spad_stride : 32'd0);
-  assign store_row_offset = {30'd0, store_row_q} * cfg.n_size * 32'd4;
+  assign store_row_offset = {30'd0, store_row_q} * cfg.n_size * 32'(OUT_BYTES);
   assign writer_start = (store_start && !store_active_q) ||
                         (store_active_q && !write_busy && !writer_done);
   assign write_done = store_active_q && writer_done &&
                       ({29'd0, store_row_q} == (tile_rows - 1'b1));
+  assign read_launch = read_start && !read_busy && !read_done;
+  assign write_launch = writer_start && !write_busy && !writer_done;
+  assign load_perf_active = load_a_start || load_b_start || load_bias_start || read_busy;
+  assign compute_perf_active = compute_active_q;
+  assign post_perf_active = post_process_start || (post_process_start_pipe_q != 8'd0) || pp_wb_active_q;
+  assign store_perf_active = store_start || store_active_q || write_busy;
+  assign phase_accounted = load_perf_active || compute_perf_active || post_perf_active || store_perf_active;
 
   axi_lite_slave u_axi_lite_slave (
     .clk(clk),
@@ -298,6 +319,7 @@ module tensor_accel_top
     .status_i(status),
     .error_code_i(error_code),
     .ovf_count_i(ovf_count),
+    .perf_i(perf),
     .cfg_o(cfg),
     .start_pulse_o(start_pulse),
     .soft_reset_pulse_o(soft_reset_pulse),
@@ -324,10 +346,8 @@ module tensor_accel_top
     .clear_error_i(clear_error_pulse),
     .clear_irq_i(clear_irq_pulse),
     .irq_en_i(irq_en),
-    .cfg_i(cfg),
     .cfg_valid_i(cfg_valid),
     .cfg_error_i(cfg_error),
-    .read_dma_done_i(read_done),
     .read_dma_error_i(read_error),
     .write_dma_done_i(write_done),
     .write_dma_error_i(write_error),
@@ -338,14 +358,11 @@ module tensor_accel_top
     .overflow_i(overflow),
     .last_tile_i(last_tile),
     .last_k_tile_i(last_k_tile),
-    .load_desc_valid_i(load_desc_valid),
+    .load_tile_done_i(load_tile_done),
     .sched_init_o(sched_init),
     .sched_advance_k_o(sched_advance_k),
     .sched_advance_o(sched_advance),
-    .load_desc_req_o(load_desc_req),
-    .load_a_start_o(load_a_start),
-    .load_b_start_o(load_b_start),
-    .load_bias_start_o(load_bias_start),
+    .load_tile_start_o(load_tile_start),
     .compute_start_o(compute_start),
     .post_process_start_o(post_process_start),
     .store_start_o(store_start),
@@ -354,7 +371,12 @@ module tensor_accel_top
     .ovf_count_o(ovf_count)
   );
 
-  tile_scheduler u_tile_scheduler (
+  tile_scheduler #(
+    .TILE_M(TILE_M),
+    .TILE_N(TILE_N),
+    .TILE_K(TILE_K),
+    .OUT_BYTES(OUT_BYTES)
+  ) u_tile_scheduler (
     .clk(clk),
     .rst_n(rst_n),
     .init_i(sched_init),
@@ -373,16 +395,24 @@ module tensor_accel_top
     .c_ext_offset_o(c_ext_offset)
   );
 
-  load_scheduler u_load_scheduler (
+  load_scheduler #(
+    .TILE_M(TILE_M),
+    .TILE_N(TILE_N),
+    .BIAS_BYTES(BIAS_BYTES)
+  ) u_load_scheduler (
     .clk(clk),
     .rst_n(rst_n),
     .clear_i(soft_reset_pulse),
-    .req_i(load_desc_req),
+    .start_i(load_tile_start),
+    .read_dma_done_i(read_done),
     .cfg_i(cfg),
     .tile_m_i(tile_m),
     .tile_n_i(tile_n),
     .tile_k_i(tile_k),
-    .desc_valid_o(load_desc_valid),
+    .done_o(load_tile_done),
+    .load_a_start_o(load_a_start),
+    .load_b_start_o(load_b_start),
+    .load_bias_start_o(load_bias_start),
     .a_addr_o(a_addr),
     .b_addr_o(b_addr),
     .bias_addr_o(bias_addr),
@@ -394,7 +424,10 @@ module tensor_accel_top
     .bias_spad_offset_o(bias_spad_offset)
   );
 
-  tensor_loader u_tensor_loader (
+  tensor_loader #(
+    .MAX_BURST_BEATS(MAX_BURST_BEATS),
+    .READ_AUTO_SPLIT_4KB(READ_AUTO_SPLIT_4KB)
+  ) u_tensor_loader (
     .clk(clk),
     .rst_n(rst_n),
     .start_i(read_start),
@@ -432,7 +465,9 @@ module tensor_accel_top
     .spad_ready_i(ctrl_spad_ready)
   );
 
-  tensor_writer u_tensor_writer (
+  tensor_writer #(
+    .MAX_BURST_BEATS(MAX_BURST_BEATS)
+  ) u_tensor_writer (
     .clk(clk),
     .rst_n(rst_n),
     .start_i(writer_start),
@@ -503,17 +538,22 @@ module tensor_accel_top
   );
 
   always_comb begin
-    for (int i = 0; i < 4; i++) begin
-      a_vec[i] = compute_valid ? a_tile_q[i][compute_count_q[1:0]] : 16'd0;
-      b_vec[i] = compute_valid ? b_tile_q[compute_count_q[1:0]][i] : 16'd0;
-      bias_vec[i] = bias_vec_q[i];
+    for (int r = 0; r < TILE_M; r++) begin
+      a_vec[r] = compute_valid ? a_panel_q[r][compute_count_q[5:0]] : 16'd0;
+    end
+    for (int c = 0; c < TILE_N; c++) begin
+      b_vec[c] = compute_valid ? b_panel_q[compute_count_q[5:0]][c] : 16'd0;
+      bias_vec[c] = bias_vec_q[c];
     end
   end
 
-  systolic_array u_systolic_array (
+  systolic_array #(
+    .ARRAY_M(TILE_M),
+    .ARRAY_N(TILE_N)
+  ) u_systolic_array (
     .clk(clk),
     .rst_n(rst_n),
-    .clear_i(compute_start && !compute_active_q && first_k_tile),
+    .clear_i(compute_launch),
     .valid_i(compute_valid),
     .precision_i(cfg.precision == PREC_INT16),
     .row_valid_i(row_valid),
@@ -524,16 +564,22 @@ module tensor_accel_top
     .overflow_o(array_overflow)
   );
 
-  accumulator u_accumulator (
+  accumulator #(
+    .ARRAY_M(TILE_M),
+    .ARRAY_N(TILE_N)
+  ) u_accumulator (
     .clk(clk),
     .rst_n(rst_n),
-    .clear_i(compute_start && !compute_active_q && first_k_tile),
+    .clear_i(compute_launch),
     .load_i(compute_done),
     .data_i(array_acc),
     .data_o(acc_tile)
   );
 
-  post_process u_post_process (
+  post_process #(
+    .ARRAY_M(TILE_M),
+    .ARRAY_N(TILE_N)
+  ) u_post_process (
     .clk(clk),
     .rst_n(rst_n),
     .post_op_i(cfg.post_op),
@@ -551,27 +597,39 @@ module tensor_accel_top
   assign pp_spad_req = pp_wb_active_q;
   assign pp_spad_we = pp_wb_active_q;
   assign pp_spad_addr = c_spad_offset[15:0] +
-                        (({14'd0, pp_wb_row} * cfg.n_size + {30'd0, pp_wb_col}) << 2);
+                        (({14'd0, pp_wb_row} * cfg.n_size + {30'd0, pp_wb_col}) * 32'(OUT_BYTES));
   assign pp_spad_wdata = pp_result[pp_wb_row][pp_wb_col];
   assign pp_spad_wstrb = 4'hf;
   assign post_process_done = pp_wb_active_q && pp_wb_last && pp_spad_ready;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      for (int r = 0; r < 4; r++) begin
-        for (int c = 0; c < 4; c++) begin
-          a_tile_q[r][c] <= 16'd0;
-          b_tile_q[r][c] <= 16'd0;
+      for (int r = 0; r < TILE_M; r++) begin
+        for (int k = 0; k < MAX_DIM; k++) begin
+          a_panel_q[r][k] <= 16'd0;
         end
-        bias_vec_q[r] <= 32'd0;
+      end
+      for (int k = 0; k < MAX_DIM; k++) begin
+        for (int c = 0; c < TILE_N; c++) begin
+          b_panel_q[k][c] <= 16'd0;
+        end
+      end
+      for (int c = 0; c < TILE_N; c++) begin
+        bias_vec_q[c] <= 32'd0;
       end
     end else if (soft_reset_pulse || sched_init) begin
-      for (int r = 0; r < 4; r++) begin
-        for (int c = 0; c < 4; c++) begin
-          a_tile_q[r][c] <= 16'd0;
-          b_tile_q[r][c] <= 16'd0;
+      for (int r = 0; r < TILE_M; r++) begin
+        for (int k = 0; k < MAX_DIM; k++) begin
+          a_panel_q[r][k] <= 16'd0;
         end
-        bias_vec_q[r] <= 32'd0;
+      end
+      for (int k = 0; k < MAX_DIM; k++) begin
+        for (int c = 0; c < TILE_N; c++) begin
+          b_panel_q[k][c] <= 16'd0;
+        end
+      end
+      for (int c = 0; c < TILE_N; c++) begin
+        bias_vec_q[c] <= 32'd0;
       end
     end else if (ctrl_spad_req && ctrl_spad_we && ctrl_spad_ready) begin
       if ((ctrl_spad_addr >= a_spad_offset) &&
@@ -579,8 +637,6 @@ module tensor_accel_top
         int unsigned byte_off;
         int unsigned row_slot;
         int unsigned byte_in_row;
-        int unsigned row_start_byte;
-        int unsigned row_align_bytes;
         int unsigned byte_pos;
         int unsigned elem_k;
         int unsigned rel_row;
@@ -589,31 +645,27 @@ module tensor_accel_top
         byte_off = ctrl_spad_addr - a_spad_offset;
         row_slot = byte_off / a_spad_stride;
         byte_in_row = byte_off % a_spad_stride;
-        row_start_byte = (((row_base + row_slot) * cfg.k_size) + k_base) * elem_b;
-        row_align_bytes = row_start_byte % 32'd8;
         if (cfg.precision == PREC_INT16) begin
           for (int lane = 0; lane < 2; lane++) begin
             byte_pos = byte_in_row + (2 * lane);
-            elem_k = (byte_pos - row_align_bytes) >> 1;
+            elem_k = byte_pos >> 1;
             if ((ctrl_spad_wstrb[(2*lane) +: 2] == 2'b11) &&
-                (row_slot < tile_rows) && (byte_pos >= row_align_bytes) &&
-                (elem_k < compute_k_limit)) begin
+                (row_slot < tile_rows) && (elem_k < compute_k_limit)) begin
               rel_row = row_slot;
               rel_k = elem_k;
-              a_tile_q[rel_row[1:0]][rel_k[1:0]] <= ctrl_spad_wdata[16*lane +: 16];
+              a_panel_q[rel_row[1:0]][rel_k[5:0]] <= ctrl_spad_wdata[16*lane +: 16];
             end
           end
         end else begin
           for (int lane = 0; lane < 4; lane++) begin
             byte_pos = byte_in_row + lane;
-            elem_k = byte_pos - row_align_bytes;
+            elem_k = byte_pos;
             if (ctrl_spad_wstrb[lane] &&
-                (row_slot < tile_rows) && (byte_pos >= row_align_bytes) &&
-                (elem_k < compute_k_limit)) begin
+                (row_slot < tile_rows) && (elem_k < compute_k_limit)) begin
               rel_row = row_slot;
               rel_k = elem_k;
-              a_tile_q[rel_row[1:0]][rel_k[1:0]] <= {{8{ctrl_spad_wdata[(8*lane)+7]}},
-                                                     ctrl_spad_wdata[8*lane +: 8]};
+              a_panel_q[rel_row[1:0]][rel_k[5:0]] <= {{8{ctrl_spad_wdata[(8*lane)+7]}},
+                                                      ctrl_spad_wdata[8*lane +: 8]};
             end
           end
         end
@@ -623,47 +675,41 @@ module tensor_accel_top
         int unsigned byte_off;
         int unsigned row_slot;
         int unsigned byte_in_row;
-        int unsigned row_start_byte;
-        int unsigned row_align_bytes;
         int unsigned byte_pos;
-        int unsigned elem_col;
+        int unsigned elem_k;
         int unsigned rel_k;
         int unsigned rel_col;
 
         byte_off = ctrl_spad_addr - b_spad_offset;
         row_slot = byte_off / b_spad_stride;
         byte_in_row = byte_off % b_spad_stride;
-        row_start_byte = (((k_base + row_slot) * cfg.n_size) + col_base) * elem_b;
-        row_align_bytes = row_start_byte % 32'd8;
         if (cfg.precision == PREC_INT16) begin
           for (int lane = 0; lane < 2; lane++) begin
             byte_pos = byte_in_row + (2 * lane);
-            elem_col = (byte_pos - row_align_bytes) >> 1;
+            elem_k = byte_pos >> 1;
             if ((ctrl_spad_wstrb[(2*lane) +: 2] == 2'b11) &&
-                (row_slot < compute_k_limit) && (byte_pos >= row_align_bytes) &&
-                (elem_col < tile_cols)) begin
-              rel_k = row_slot;
-              rel_col = elem_col;
-              b_tile_q[rel_k[1:0]][rel_col[1:0]] <= ctrl_spad_wdata[16*lane +: 16];
+                (row_slot < tile_cols) && (elem_k < compute_k_limit)) begin
+              rel_k = elem_k;
+              rel_col = row_slot;
+              b_panel_q[rel_k[5:0]][rel_col[1:0]] <= ctrl_spad_wdata[16*lane +: 16];
             end
           end
         end else begin
           for (int lane = 0; lane < 4; lane++) begin
             byte_pos = byte_in_row + lane;
-            elem_col = byte_pos - row_align_bytes;
+            elem_k = byte_pos;
             if (ctrl_spad_wstrb[lane] &&
-                (row_slot < compute_k_limit) && (byte_pos >= row_align_bytes) &&
-                (elem_col < tile_cols)) begin
-              rel_k = row_slot;
-              rel_col = elem_col;
-              b_tile_q[rel_k[1:0]][rel_col[1:0]] <= {{8{ctrl_spad_wdata[(8*lane)+7]}},
-                                                     ctrl_spad_wdata[8*lane +: 8]};
+                (row_slot < tile_cols) && (elem_k < compute_k_limit)) begin
+              rel_k = elem_k;
+              rel_col = row_slot;
+              b_panel_q[rel_k[5:0]][rel_col[1:0]] <= {{8{ctrl_spad_wdata[(8*lane)+7]}},
+                                                      ctrl_spad_wdata[8*lane +: 8]};
             end
           end
         end
       end
       if ((ctrl_spad_addr >= bias_spad_offset) &&
-          (ctrl_spad_addr < (bias_spad_offset + 16'd16))) begin
+          (ctrl_spad_addr < (bias_spad_offset + 16'(TILE_N * BIAS_BYTES)))) begin
         int unsigned word_idx;
 
         word_idx = (ctrl_spad_addr - bias_spad_offset) >> 2;
@@ -675,13 +721,13 @@ module tensor_accel_top
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       compute_active_q <= 1'b0;
-      compute_count_q <= 4'd0;
+      compute_count_q <= 8'd0;
     end else if (soft_reset_pulse) begin
       compute_active_q <= 1'b0;
-      compute_count_q <= 4'd0;
-    end else if (compute_start && !compute_active_q) begin
+      compute_count_q <= 8'd0;
+    end else if (compute_launch) begin
       compute_active_q <= 1'b1;
-      compute_count_q <= 4'd0;
+      compute_count_q <= 8'd0;
     end else if (compute_active_q) begin
       compute_count_q <= compute_count_q + 1'b1;
       if (compute_array_done) begin
@@ -743,6 +789,68 @@ module tensor_accel_top
           store_row_q <= 3'd0;
         end else begin
           store_row_q <= store_row_q + 1'b1;
+        end
+      end
+    end
+  end
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      perf_active_q <= 1'b0;
+      perf <= '0;
+    end else if (soft_reset_pulse) begin
+      perf_active_q <= 1'b0;
+      perf <= '0;
+    end else begin
+      if (start_pulse) begin
+        perf_active_q <= 1'b1;
+        perf <= '0;
+      end else if (perf_active_q && (status.done || status.error)) begin
+        perf_active_q <= 1'b0;
+      end else if (perf_active_q) begin
+        perf.total_cycles <= perf.total_cycles + 1'b1;
+
+        if (load_perf_active) begin
+          perf.load_cycles <= perf.load_cycles + 1'b1;
+        end
+        if (compute_perf_active) begin
+          perf.compute_cycles <= perf.compute_cycles + 1'b1;
+        end
+        if (post_perf_active) begin
+          perf.post_process_cycles <= perf.post_process_cycles + 1'b1;
+        end
+        if (store_perf_active) begin
+          perf.store_cycles <= perf.store_cycles + 1'b1;
+        end
+        if (!phase_accounted) begin
+          perf.idle_or_wait_cycles <= perf.idle_or_wait_cycles + 1'b1;
+        end
+
+        if (read_launch) begin
+          perf.axi_read_bytes <= perf.axi_read_bytes + read_bytes;
+        end
+        if (write_launch) begin
+          perf.axi_write_bytes <= perf.axi_write_bytes + c_store_row_bytes;
+        end
+        if (compute_launch) begin
+          perf.tile_count <= perf.tile_count + 1'b1;
+        end
+        if (m_axi_arvalid && m_axi_arready) begin
+          perf.read_burst_count <= perf.read_burst_count + 1'b1;
+        end
+        if (m_axi_awvalid && m_axi_awready) begin
+          perf.write_burst_count <= perf.write_burst_count + 1'b1;
+        end
+        if ((m_axi_arvalid && !m_axi_arready) || (m_axi_rvalid && !m_axi_rready)) begin
+          perf.stall_on_axi_read <= perf.stall_on_axi_read + 1'b1;
+        end
+        if ((m_axi_awvalid && !m_axi_awready) ||
+            (m_axi_wvalid && !m_axi_wready) ||
+            (m_axi_bvalid && !m_axi_bready)) begin
+          perf.stall_on_axi_write <= perf.stall_on_axi_write + 1'b1;
+        end
+        if (spad_req && !spad_ready) begin
+          perf.stall_on_spad <= perf.stall_on_spad + 1'b1;
         end
       end
     end

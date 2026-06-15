@@ -57,8 +57,8 @@ module region_checker
   always_comb begin
     elem_b = elem_bytes(cfg_q.precision);
     beat_bytes = AXI_DATA_WIDTH / 8;
-    a_need = cfg_q.m_size * cfg_q.k_size * elem_b;
-    b_need = cfg_q.k_size * cfg_q.n_size * elem_b;
+    a_need = cfg_q.m_size * align8_bytes(cfg_q.k_size * elem_b);
+    b_need = cfg_q.n_size * align8_bytes(cfg_q.k_size * elem_b);
     c_need = cfg_q.m_size * cfg_q.n_size * 32'd4;
     bias_need = bias_enabled(cfg_q.post_op) ? (cfg_q.n_size * 32'd4) : 32'd0;
 

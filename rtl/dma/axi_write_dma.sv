@@ -53,18 +53,18 @@ module axi_write_dma #(
   localparam logic [SPAD_ADDR_WIDTH-1:0] SPAD_WORD_BYTES =
       SPAD_ADDR_WIDTH'(SPAD_DATA_WIDTH / 8);
 
-  typedef enum logic [3:0] {
-    S_IDLE,
-    S_START,
-    S_SPLIT,
-    S_PLAN,
-    S_AW,
-    S_READ_REQ,
-    S_READ_DATA,
-    S_W,
-    S_B,
-    S_B_RESP,
-    S_DONE
+  typedef enum logic [10:0] {
+    S_IDLE      = 11'b000_0000_0001,
+    S_START     = 11'b000_0000_0010,
+    S_SPLIT     = 11'b000_0000_0100,
+    S_PLAN      = 11'b000_0000_1000,
+    S_AW        = 11'b000_0001_0000,
+    S_READ_REQ  = 11'b000_0010_0000,
+    S_READ_DATA = 11'b000_0100_0000,
+    S_W         = 11'b000_1000_0000,
+    S_B         = 11'b001_0000_0000,
+    S_B_RESP    = 11'b010_0000_0000,
+    S_DONE      = 11'b100_0000_0000
   } state_e;
   state_e state_q, state_d;
   logic [7:0] burst_beats;

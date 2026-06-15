@@ -1,5 +1,11 @@
 module tile_scheduler
   import tensor_pkg::*;
+#(
+  parameter int TILE_M = ARRAY_M,
+  parameter int TILE_N = ARRAY_N,
+  parameter int TILE_K = ARRAY_M,
+  parameter int OUT_BYTES = 4
+) 
 (
   input  logic clk,
   input  logic rst_n,
@@ -13,8 +19,8 @@ module tile_scheduler
   output logic last_tile_o,
   output logic first_k_tile_o,
   output logic last_k_tile_o,
-  output logic [3:0] row_valid_o,
-  output logic [3:0] col_valid_o,
+  output logic [TILE_M-1:0] row_valid_o,
+  output logic [TILE_N-1:0] col_valid_o,
   output logic [31:0] c_spad_offset_o,
   output logic [31:0] c_ext_offset_o
 );
@@ -27,9 +33,9 @@ module tile_scheduler
   logic [31:0] row_base;
   logic [31:0] col_base;
 
-  assign tile_m_count = ceil_div4(cfg_i.m_size);
-  assign tile_n_count = ceil_div4(cfg_i.n_size);
-  assign tile_k_count = ceil_div4(cfg_i.k_size);
+  assign tile_m_count = ceil_div(cfg_i.m_size, 32'(TILE_M));
+  assign tile_n_count = ceil_div(cfg_i.n_size, 32'(TILE_N));
+  assign tile_k_count = ceil_div(cfg_i.k_size, 32'(TILE_K));
   assign tile_m_o = tile_m_q;
   assign tile_n_o = tile_n_q;
   assign tile_k_o = tile_k_q;
@@ -37,16 +43,17 @@ module tile_scheduler
                        (tile_n_q == tile_n_count[5:0] - 1'b1);
   assign first_k_tile_o = (tile_k_q == 6'd0);
   assign last_k_tile_o = (tile_k_q == tile_k_count[5:0] - 1'b1);
-  assign row_base = {26'd0, tile_m_q} << 2;
-  assign col_base = {26'd0, tile_n_q} << 2;
-  assign c_spad_offset_o = cfg_i.c_spad_offset + ((row_base * cfg_i.n_size + col_base) << 2);
-  assign c_ext_offset_o = ((row_base * cfg_i.n_size + col_base) << 2);
+  assign row_base = {26'd0, tile_m_q} * 32'(TILE_M);
+  assign col_base = {26'd0, tile_n_q} * 32'(TILE_N);
+  assign c_spad_offset_o = cfg_i.c_spad_offset +
+                           ((row_base * cfg_i.n_size + col_base) * 32'(OUT_BYTES));
+  assign c_ext_offset_o = ((row_base * cfg_i.n_size + col_base) * 32'(OUT_BYTES));
 
   always_comb begin
-    for (int r = 0; r < 4; r++) begin
+    for (int r = 0; r < TILE_M; r++) begin
       row_valid_o[r] = (row_base + r[31:0]) < cfg_i.m_size;
     end
-    for (int c = 0; c < 4; c++) begin
+    for (int c = 0; c < TILE_N; c++) begin
       col_valid_o[c] = (col_base + c[31:0]) < cfg_i.n_size;
     end
   end

@@ -3,7 +3,8 @@ module axi_read_dma #(
   parameter int AXI_DATA_WIDTH = 64,
   parameter int SPAD_ADDR_WIDTH = 16,
   parameter int SPAD_DATA_WIDTH = 32,
-  parameter int MAX_BURST_BEATS = 16
+  parameter int MAX_BURST_BEATS = 16,
+  parameter bit AUTO_SPLIT_4KB = 1'b0
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -40,6 +41,8 @@ module axi_read_dma #(
 );
   localparam int AXI_BYTES = AXI_DATA_WIDTH / 8;
   localparam int SPAD_WORDS_PER_BEAT = AXI_DATA_WIDTH / SPAD_DATA_WIDTH;
+  localparam int READ_BUFFER_DEPTH = 2;
+  localparam int READ_BUFFER_WIDTH = AXI_DATA_WIDTH + 1;
   localparam logic [2:0] AXI_SIZE = 3'($clog2(AXI_BYTES));
   localparam logic [$clog2(SPAD_WORDS_PER_BEAT)-1:0] LAST_WORD =
       $clog2(SPAD_WORDS_PER_BEAT)'(SPAD_WORDS_PER_BEAT - 1);
@@ -64,11 +67,20 @@ module axi_read_dma #(
   logic [AXI_DATA_WIDTH-1:0] rdata_q;
   logic write_words_q;
   logic last_read_q;
+  logic rbuf_clear;
+  logic rbuf_push;
+  logic rbuf_pop;
+  logic rbuf_direct;
+  logic [READ_BUFFER_WIDTH-1:0] rbuf_push_data;
+  logic [READ_BUFFER_WIDTH-1:0] rbuf_pop_data;
+  logic rbuf_full;
+  logic rbuf_empty;
+  logic [$clog2(READ_BUFFER_DEPTH):0] rbuf_count;
 
   dma_burst_splitter #(
     .AXI_DATA_WIDTH(AXI_DATA_WIDTH),
     .MAX_BURST_BEATS(MAX_BURST_BEATS),
-    .AUTO_SPLIT_4KB(1'b0)
+    .AUTO_SPLIT_4KB(AUTO_SPLIT_4KB)
   ) u_splitter (
     .addr_i(split_addr),
     .bytes_i(split_bytes),
@@ -87,7 +99,7 @@ module axi_read_dma #(
   assign m_axi_arsize = AXI_SIZE;
   assign m_axi_arburst = 2'b01;
   assign m_axi_arvalid = state_q[S_AR];
-  assign m_axi_rready = state_q[S_R] && !write_words_q;
+  assign m_axi_rready = state_q[S_R] && !rbuf_full;
 
   assign spad_req_o = write_words_q;
   assign spad_we_o = 1'b1;
@@ -96,6 +108,28 @@ module axi_read_dma #(
   assign spad_wstrb_o = '1;
   assign busy_o = state_q[S_AR] || state_q[S_R];
   assign done_o = state_q[S_DONE];
+  assign rbuf_clear = (state_q[S_IDLE] && start_i) || state_q[S_DONE];
+  assign rbuf_direct = state_q[S_R] && !write_words_q && rbuf_empty &&
+                       m_axi_rvalid && m_axi_rready;
+  assign rbuf_push = m_axi_rvalid && m_axi_rready && !rbuf_direct;
+  assign rbuf_pop = state_q[S_R] && !write_words_q && !rbuf_empty;
+  assign rbuf_push_data = {m_axi_rlast, m_axi_rdata};
+
+  fifo #(
+    .WIDTH(READ_BUFFER_WIDTH),
+    .DEPTH(READ_BUFFER_DEPTH)
+  ) u_read_buffer (
+    .clk(clk),
+    .rst_n(rst_n),
+    .clear_i(rbuf_clear),
+    .push_i(rbuf_push),
+    .push_data_i(rbuf_push_data),
+    .pop_i(rbuf_pop),
+    .pop_data_o(rbuf_pop_data),
+    .full_o(rbuf_full),
+    .empty_o(rbuf_empty),
+    .count_o(rbuf_count)
+  );
 
   always_comb begin
     state_d = 4'b0000;
@@ -144,12 +178,16 @@ module axi_read_dma #(
         beat_word_q <= '0;
         last_read_q <= 1'b0;
       end
-      if (m_axi_rvalid && m_axi_rready) begin
+      if (rbuf_direct) begin
         rdata_q <= m_axi_rdata;
         beat_word_q <= '0;
         write_words_q <= 1'b1;
         last_read_q <= m_axi_rlast;
-        if (m_axi_rresp[1]) error_o <= 1'b1;
+      end else if (rbuf_pop) begin
+        rdata_q <= rbuf_pop_data[AXI_DATA_WIDTH-1:0];
+        beat_word_q <= '0;
+        write_words_q <= 1'b1;
+        last_read_q <= rbuf_pop_data[AXI_DATA_WIDTH];
       end else if (write_words_q && spad_ready_i) begin
         if (beat_word_q == LAST_WORD) begin
           beat_word_q <= '0;
@@ -163,6 +201,9 @@ module axi_read_dma #(
           beat_word_q <= beat_word_q + 1'b1;
         end
         spad_addr_q <= spad_addr_q + SPAD_WORD_BYTES;
+      end
+      if (rbuf_push && m_axi_rresp[1]) begin
+        error_o <= 1'b1;
       end
     end
   end

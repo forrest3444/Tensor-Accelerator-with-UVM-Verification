@@ -81,6 +81,23 @@ package tensor_pkg;
   } accel_status_t;
 
   typedef struct packed {
+    logic [31:0] total_cycles;
+    logic [31:0] load_cycles;
+    logic [31:0] compute_cycles;
+    logic [31:0] post_process_cycles;
+    logic [31:0] store_cycles;
+    logic [31:0] idle_or_wait_cycles;
+    logic [31:0] axi_read_bytes;
+    logic [31:0] axi_write_bytes;
+    logic [31:0] tile_count;
+    logic [31:0] read_burst_count;
+    logic [31:0] write_burst_count;
+    logic [31:0] stall_on_axi_read;
+    logic [31:0] stall_on_axi_write;
+    logic [31:0] stall_on_spad;
+  } perf_counter_t;
+
+  typedef struct packed {
     logic [31:0] addr;
     logic [31:0] byte_len;
     tensor_type_e tensor_type;
@@ -99,6 +116,15 @@ package tensor_pkg;
 
   function automatic logic [31:0] elem_bytes(input precision_e precision);
     return (precision == PREC_INT16) ? 32'd2 : 32'd1;
+  endfunction
+
+  function automatic logic [31:0] align8_bytes(input logic [31:0] value);
+    return (value + 32'd7) & 32'hffff_fff8;
+  endfunction
+
+  function automatic logic [31:0] ceil_div(input logic [31:0] value,
+                                           input logic [31:0] divisor);
+    return (value + divisor - 32'd1) / divisor;
   endfunction
 
   function automatic logic [31:0] ceil_div4(input logic [31:0] value);

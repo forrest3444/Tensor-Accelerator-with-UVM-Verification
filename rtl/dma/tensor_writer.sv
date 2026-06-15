@@ -1,4 +1,10 @@
-module tensor_writer (
+module tensor_writer #(
+  parameter int AXI_ADDR_WIDTH = 32,
+  parameter int AXI_DATA_WIDTH = 64,
+  parameter int SPAD_ADDR_WIDTH = 16,
+  parameter int SPAD_DATA_WIDTH = 32,
+  parameter int MAX_BURST_BEATS = 16
+) (
   input  logic clk,
   input  logic rst_n,
   input  logic start_i,
@@ -34,7 +40,13 @@ module tensor_writer (
   input  logic [31:0] spad_rdata_i,
   input  logic        spad_ready_i
 );
-  axi_write_dma u_axi_write_dma (
+  axi_write_dma #(
+    .AXI_ADDR_WIDTH(AXI_ADDR_WIDTH),
+    .AXI_DATA_WIDTH(AXI_DATA_WIDTH),
+    .SPAD_ADDR_WIDTH(SPAD_ADDR_WIDTH),
+    .SPAD_DATA_WIDTH(SPAD_DATA_WIDTH),
+    .MAX_BURST_BEATS(MAX_BURST_BEATS)
+  ) u_axi_write_dma (
     .clk(clk),
     .rst_n(rst_n),
     .start_i(start_i),
