@@ -12,5 +12,6 @@ package tensor_accel_env_pkg;
   `include "tensor_accel_subscriber.sv"
   `include "tensor_accel_scoreboard.sv"
   `include "tensor_accel_coverage.sv"
+  `include "tensor_perf_monitor.sv"
   `include "tensor_accel_env.sv"
 endpackage

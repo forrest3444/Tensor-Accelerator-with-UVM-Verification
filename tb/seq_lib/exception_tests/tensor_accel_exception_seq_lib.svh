@@ -9,7 +9,6 @@
 `include "exception_tests/tensor_axi_write_error_vseq.sv"
 `include "exception_tests/tensor_command_while_busy_vseq.sv"
 `include "exception_tests/tensor_start_while_done_vseq.sv"
-`include "exception_tests/tensor_burst_cross_4kb_vseq.sv"
 `include "exception_tests/tensor_burst_len_config_vseq.sv"
 `include "exception_tests/tensor_internal_timeout_vseq.sv"
 `include "exception_tests/tensor_reset_during_operation_vseq.sv"

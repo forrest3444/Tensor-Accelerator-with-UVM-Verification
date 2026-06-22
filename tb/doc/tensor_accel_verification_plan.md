@@ -67,7 +67,7 @@
 | F022 | AXI read error | AXI read SLVERR、bias read error 必须报 ERR_AXI_READ_ERROR | P0 | SVT AXI slave error injection | TC029, TC030 |
 | F023 | AXI write error | AXI write SLVERR、中途写错误必须报 ERR_AXI_WRITE_ERROR | P0 | SVT AXI slave error injection | TC031, TC032 |
 | F024 | command 状态机非法 start | busy 或 done 未清除时再次 start，必须报 command error 且状态符合预期 | P0 | Directed command hazard | TC033, TC034 |
-| F025 | 4KB boundary | DMA burst 不应跨 4KB boundary，非法场景报 ERR_BURST_CROSS_4KB | P1 | Directed boundary address + AR monitor | TC035 |
+| F025 | 4KB boundary | 读 DMA 自动拆分跨 4KB 请求，AXI AR burst 不跨 4KB boundary | P1 | AR protocol monitor | Random/traffic coverage |
 | F026 | internal timeout | AXI read 长时间无响应时进入 ERR_INTERNAL_TIMEOUT，不误判 done | P0 | Force rvalid low + monitor | TC038 |
 | F027 | reset/soft reset | soft reset 和 load/compute/store 阶段 reset 后状态、错误码、IRQ、活跃信号恢复正确 | P0 | Directed reset injection + recovery operation | TC039, TC040, TC041, TC042, TC043 |
 | F028 | error clear recovery | error clear 后可重新执行合法 operation 且结果正确 | P0 | Negative + clear + positive recovery | TC044 |
@@ -110,7 +110,6 @@
 | TC029 | `tensor_err_axi_write_mid_row_error_test` | 验证写回中途错误 | C 写回过程中注入 error | STATUS.error、ERR_AXI_WRITE_ERROR | F023 |
 | TC030 | `tensor_err_command_while_busy_test` | 验证 busy 期间重复 start | operation busy 后再次写 START | STATUS.error、ERR_COMMAND_WHILE_BUSY | F024 |
 | TC031 | `tensor_err_start_while_done_test` | 验证 done 未清除时重复 start | operation done 后不 clear 再 start | done 保持、error 置位、ERROR_CODE 正确 | F024 |
-| TC032 | `tensor_err_burst_cross_4kb_test` | 验证 burst 跨 4KB 保护 | 构造接近 4KB 边界的 base/burst | 无非法 AR burst、ERR_BURST_CROSS_4KB | F025 |
 | TC033 | `tensor_err_burst_len_zero_test` | 验证 burst_len=0 | DMA_CFG burst_len 写 0 | 不正常 done，进入 error 或 timeout 检查 | F014 |
 | TC034 | `tensor_err_burst_len_exceed_test` | 验证 burst_len 超限 | performance/超限 burst_len 配置 | AXI ARLEN 不超过允许值或报错 | F014 |
 | TC035 | `tensor_err_internal_timeout_test` | 验证 internal timeout | 强制 AXI RVALID 低 | STATUS.error、ERR_INTERNAL_TIMEOUT、无 done | F026 |
@@ -200,7 +199,7 @@
 - `error_code` coverpoint 与 `error_code x irq_en` 交叉。
 - `reset_phase` coverpoint：idle/load/compute/store。
 - `axi_resp` coverpoint：OKAY/SLVERR for read/write。
-- `burst_cross_4kb`、`unaligned_base`、`command_hazard` 独立 coverpoint。
+- `unaligned_base`、`command_hazard` 独立 coverpoint；4KB split 由 AR boundary protocol coverage 统计。
 
 ### 5.2 代码覆盖率
 

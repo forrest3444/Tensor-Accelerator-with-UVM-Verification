@@ -61,7 +61,7 @@ LOAD_A -> LOAD_B -> LOAD_BIAS(optional) -> COMPUTE -> POST_PROCESS -> STORE
 
 ### 4.2 关键工作
 
-增加 performance counter，建议至少包含：
+在验证环境实现 performance monitor，建议至少包含：
 
 - `total_cycles`
 - `load_cycles`
@@ -78,10 +78,7 @@ LOAD_A -> LOAD_B -> LOAD_BIAS(optional) -> COMPUTE -> POST_PROCESS -> STORE
 - `stall_on_axi_write`
 - `stall_on_spad`
 
-counter 暴露方式：
-
-- 方案 A：新增只读 performance register。
-- 方案 B：先在 testbench 层通过 DUT signal 统计，RTL 后续再固化。
+性能统计通过 testbench probe 和 AXI monitor 完成，不占用可综合 RTL 资源，也不作为软件寄存器契约。
 
 建议固定 workload：
 
@@ -375,7 +372,7 @@ B 输入矩阵默认由软件预转置，以便硬件按列条带顺序读取；
 
 - 所有 directed matmul testcase 通过。
 - 所有 exception testcase 通过或有明确 spec 更新。
-- performance counter 显示 load/compute/store overlap 命中。
+- performance monitor 显示 load/compute/store overlap 命中。
 - 大矩阵场景 idle cycle 明显下降。
 
 ### 7.6 风险
@@ -487,7 +484,7 @@ performance 相关覆盖建议：
 
 | 里程碑 | 阶段目标 | 主要产物 | 风险 |
 |---|---|---|---|
-| M0 | 建立性能基线 | performance counter、baseline report | 低 |
+| M0 | 建立性能基线 | testbench performance monitor、baseline report | 低 |
 | M1 | 低风险参数化 | tile/latency/burst 参数化，4x4 regression 通过 | 中 |
 | M2 | DMA/scratchpad 提速 | burst 256、read 4KB auto split、descriptor FIFO、ping-pong 基础 | 中高 |
 | M3 | tile pipeline | load/compute/store overlap，64x64 性能显著提升 | 高 |
@@ -504,14 +501,14 @@ performance 相关覆盖建议：
    - 如果主要瓶颈是 DMA/store，优先做 M2。
    - 如果主要瓶颈是 compute，评估 M4，但仍建议先完成 M2 的 scratchpad/burst 基础能力。
    - 如果 idle cycle 很高，优先做 M3。
-4. 每完成一个阶段都运行完整 directed/exception regression，并比较性能 counter。
+4. 每完成一个阶段都运行完整 directed/exception regression，并比较 testbench performance report。
 5. 进入 M3/M4 前必须补齐关键 assertion 和 pipeline coverage。
 
 ## 12. 初步风险判断
 
 | 优化项 | 工作量 | 性能收益 | 风险 | 建议优先级 |
 |---|---:|---:|---:|---|
-| performance counter | 小 | 间接收益 | 低 | P0 |
+| testbench performance monitor | 小 | 间接收益 | 低 | P0 |
 | tile/latency 参数化 | 中 | 间接收益 | 中 | P0 |
 | burst 256 支持 | 中 | 中 | 中 | P1 |
 | read 4KB auto split | 中 | 中 | 中 | P1 |

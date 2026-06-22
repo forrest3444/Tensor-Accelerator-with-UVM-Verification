@@ -82,7 +82,9 @@ class tensor_saturation_vseq extends tensor_matmul_vseq;
       bias_bytes[(col * 4) + 2] = word_data[23:16];
       bias_bytes[(col * 4) + 3] = word_data[31:24];
     end
-    env.axi_system_env.slave[0].write_num_byte(bias_base, bias_bytes.size(), bias_bytes);
+    foreach (bias_bytes[idx]) begin
+      env.axi_system_env.slave[0].write_byte(bias_base + idx, bias_bytes[idx]);
+    end
   endtask
 
   virtual task post_done_checks();

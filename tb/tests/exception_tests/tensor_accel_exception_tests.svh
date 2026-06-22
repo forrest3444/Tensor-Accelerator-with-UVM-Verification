@@ -11,7 +11,6 @@
 `include "exception_tests/tensor_err_axi_write_mid_row_error_test.sv"
 `include "exception_tests/tensor_err_command_while_busy_test.sv"
 `include "exception_tests/tensor_err_start_while_done_test.sv"
-`include "exception_tests/tensor_err_burst_cross_4kb_test.sv"
 `include "exception_tests/tensor_err_burst_len_zero_test.sv"
 `include "exception_tests/tensor_err_burst_len_exceed_test.sv"
 `include "exception_tests/tensor_err_internal_timeout_test.sv"

@@ -1,15 +1,22 @@
-`ifndef TENSOR_ACCEL_BIAS_VSEQ_SV
-`define TENSOR_ACCEL_BIAS_VSEQ_SV
+`ifndef TENSOR_PARTIAL_K_POSTOP_VSEQ_SV
+`define TENSOR_PARTIAL_K_POSTOP_VSEQ_SV
 
-class tensor_bias_vseq extends tensor_matmul_vseq;
-  `uvm_object_utils(tensor_bias_vseq)
+class tensor_partial_k_postop_vseq extends tensor_matmul_vseq;
+  `uvm_object_utils(tensor_partial_k_postop_vseq)
 
   int signed bias_data[];
 
-  function new(string name = "tensor_bias_vseq");
+  function new(string name = "tensor_partial_k_postop_vseq");
     super.new(name);
-    post_op = POST_BIAS;
-    bias_base = 32'h0005_0080;
+    m_size = 4;
+    n_size = 2;
+    k_size = 2;
+    precision = PREC_INT8;
+    post_op = POST_NONE;
+    sat_mode = SAT_WRAP;
+    burst_len = 8'd1;
+    bias_base = 32'h0004_8000;
+    timeout_cycles = 10000;
   endfunction
 
   virtual task body();
@@ -20,17 +27,36 @@ class tensor_bias_vseq extends tensor_matmul_vseq;
   virtual function void init_matrices(ref int signed a_data[],
                                       ref int signed b_data[],
                                       ref int signed golden_c[]);
-    super.init_matrices(a_data, b_data, golden_c);
+    foreach (a_data[idx]) begin
+      int unsigned row;
+      int unsigned kk;
+
+      row = idx / k_size;
+      kk = idx % k_size;
+      a_data[idx] = int'(((row * 5) + (kk * 3)) % 11) - 5;
+    end
+
+    foreach (b_data[idx]) begin
+      int unsigned kk;
+      int unsigned col;
+
+      kk = idx / n_size;
+      col = idx % n_size;
+      b_data[idx] = int'(((kk * 7) + (col * 5)) % 9) - 4;
+    end
 
     foreach (bias_data[col]) begin
-      bias_data[col] = int'($urandom_range(0, 63)) - 31;
+      bias_data[col] = (col == 0) ? 2275 : -961;
     end
 
     for (int row = 0; row < m_size; row++) begin
       for (int col = 0; col < n_size; col++) begin
         longint signed acc;
 
-        acc = golden_c[(row * n_size) + col];
+        acc = 0;
+        for (int kk = 0; kk < k_size; kk++) begin
+          acc += a_data[(row * k_size) + kk] * b_data[(kk * n_size) + col];
+        end
         if (bias_enabled(post_op)) begin
           acc += bias_data[col];
         end

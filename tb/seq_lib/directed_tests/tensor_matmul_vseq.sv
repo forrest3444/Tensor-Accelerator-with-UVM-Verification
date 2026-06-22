@@ -198,19 +198,12 @@ class tensor_matmul_vseq extends base_vseq;
       end
     end
 
-`ifdef DEBUG
-    if ((m_size == 32'd64) && (n_size == 32'd1) && (k_size == 32'd5)) begin
-      `uvm_info(get_type_name(),
-                $sformatf("DBG_TB_B_PRELOAD size=%0d stride=%0d bytes=%02x %02x %02x %02x %02x %02x %02x %02x",
-                          b_bytes.size(), panel_row_stride,
-                          b_bytes[0], b_bytes[1], b_bytes[2], b_bytes[3],
-                          b_bytes[4], b_bytes[5], b_bytes[6], b_bytes[7]),
-                UVM_LOW)
+    foreach (a_bytes[idx]) begin
+      env.axi_system_env.slave[0].write_byte(a_base + idx, a_bytes[idx]);
     end
-`endif
-
-    env.axi_system_env.slave[0].write_num_byte(a_base, a_bytes.size(), a_bytes);
-    env.axi_system_env.slave[0].write_num_byte(b_base, b_bytes.size(), b_bytes);
+    foreach (b_bytes[idx]) begin
+      env.axi_system_env.slave[0].write_byte(b_base + idx, b_bytes[idx]);
+    end
   endtask
 
   virtual task poison_c_memory();
@@ -220,7 +213,9 @@ class tensor_matmul_vseq extends base_vseq;
     foreach (c_bytes[idx]) begin
       c_bytes[idx] = 8'ha5;
     end
-    env.axi_system_env.slave[0].write_num_byte(c_base, c_bytes.size(), c_bytes);
+    foreach (c_bytes[idx]) begin
+      env.axi_system_env.slave[0].write_byte(c_base + idx, c_bytes[idx]);
+    end
   endtask
 
   virtual task read_c_memory(ref int signed actual_c[]);
@@ -228,7 +223,9 @@ class tensor_matmul_vseq extends base_vseq;
     bit signed [31:0] word_data;
 
     c_bytes = new[m_size * n_size * 4];
-    env.axi_system_env.slave[0].read_num_byte(c_base, c_bytes.size(), c_bytes);
+    foreach (c_bytes[idx]) begin
+      env.axi_system_env.slave[0].read_byte(c_base + idx, c_bytes[idx]);
+    end
 
     for (int idx = 0; idx < m_size * n_size; idx++) begin
       word_data = {c_bytes[(idx * 4) + 3], c_bytes[(idx * 4) + 2],
@@ -287,60 +284,6 @@ class tensor_matmul_vseq extends base_vseq;
   endtask
 
   virtual task post_done_checks();
-    report_performance_counters();
-  endtask
-
-  virtual task report_performance_counters();
-    uvm_reg_data_t total_cycles;
-    uvm_reg_data_t load_cycles;
-    uvm_reg_data_t compute_cycles;
-    uvm_reg_data_t post_cycles;
-    uvm_reg_data_t store_cycles;
-    uvm_reg_data_t idle_cycles;
-    uvm_reg_data_t read_bytes;
-    uvm_reg_data_t write_bytes;
-    uvm_reg_data_t tile_count;
-    uvm_reg_data_t read_bursts;
-    uvm_reg_data_t write_bursts;
-    uvm_reg_data_t read_stall;
-    uvm_reg_data_t write_stall;
-    uvm_reg_data_t spad_stall;
-
-    ral_read(reg_model.PERF_TOTAL, total_cycles);
-    ral_read(reg_model.PERF_LOAD, load_cycles);
-    ral_read(reg_model.PERF_COMPUTE, compute_cycles);
-    ral_read(reg_model.PERF_POST, post_cycles);
-    ral_read(reg_model.PERF_STORE, store_cycles);
-    ral_read(reg_model.PERF_IDLE, idle_cycles);
-    ral_read(reg_model.PERF_RD_BYTES, read_bytes);
-    ral_read(reg_model.PERF_WR_BYTES, write_bytes);
-    ral_read(reg_model.PERF_TILE_COUNT, tile_count);
-    ral_read(reg_model.PERF_RD_BURSTS, read_bursts);
-    ral_read(reg_model.PERF_WR_BURSTS, write_bursts);
-    ral_read(reg_model.PERF_RD_STALL, read_stall);
-    ral_read(reg_model.PERF_WR_STALL, write_stall);
-    ral_read(reg_model.PERF_SPAD_STALL, spad_stall);
-
-    `uvm_info("PERF_BASELINE",
-              $sformatf("m=%0d n=%0d k=%0d precision=%0d total=%0d load=%0d compute=%0d post=%0d store=%0d idle=%0d rd_bytes=%0d wr_bytes=%0d tiles=%0d rd_bursts=%0d wr_bursts=%0d rd_stall=%0d wr_stall=%0d spad_stall=%0d",
-                        m_size, n_size, k_size, precision,
-                        total_cycles, load_cycles, compute_cycles, post_cycles,
-                        store_cycles, idle_cycles, read_bytes, write_bytes,
-                        tile_count, read_bursts, write_bursts,
-                        read_stall, write_stall, spad_stall),
-              UVM_LOW)
-
-    if ((total_cycles == 0) || (load_cycles == 0) || (compute_cycles == 0) ||
-        (store_cycles == 0) || (read_bytes == 0) || (write_bytes == 0) ||
-        (tile_count == 0)) begin
-      `uvm_error(get_type_name(),
-                 $sformatf("Performance counters did not advance as expected: total=%0d load=%0d compute=%0d store=%0d rd_bytes=%0d wr_bytes=%0d tiles=%0d",
-                           total_cycles, load_cycles, compute_cycles, store_cycles,
-                           read_bytes, write_bytes, tile_count))
-      if (cfg != null) cfg.add_seq_check_error();
-    end else if (cfg != null) begin
-      cfg.add_seq_check_count();
-    end
   endtask
 
   virtual function int signed pattern_value(input int unsigned row,

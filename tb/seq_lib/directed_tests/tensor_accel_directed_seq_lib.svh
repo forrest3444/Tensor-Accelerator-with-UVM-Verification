@@ -14,5 +14,6 @@
 `include "directed_tests/tensor_saturation_vseq.sv"
 `include "directed_tests/tensor_non_aligned_vseq.sv"
 `include "directed_tests/tensor_degenerate_dims_vseq.sv"
+`include "directed_tests/tensor_partial_k_postop_vseq.sv"
 
 `endif

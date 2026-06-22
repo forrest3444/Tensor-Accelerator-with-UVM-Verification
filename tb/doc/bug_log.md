@@ -37,6 +37,7 @@ BUG-YYYYMMDD-NNN-{MODULE}-WWH
 | TILE | tile_count_fsm |
 | BUFM | buffer_manager_fsm |
 | TACC | tensor_accel_top (top-level integration / wiring) |
+| TB   | UVM sequences and validation memory model integration |
 
 ---
 
@@ -79,16 +80,16 @@ Widened internal accumulation path to 40 bits from MAC output through PE, systol
 
 ---
 
-## BUG-20260526-002-TACC-WWH: Degenerate M/N dimensions produce C mismatches
+## BUG-20260526-002-TACC-WWH: Back-to-back and degenerate dimensions produce C mismatches
 
 ### Status
-Open
+Fixed
 
 ### Severity
 MAJ
 
 ### Module
-TACC / LOAD / STOR
+ACC / TACC / TB
 
 ### First Found In
 - Test case: `tensor_base_random_legal_test`
@@ -98,7 +99,7 @@ TACC / LOAD / STOR
 - Date: 2026-05-26
 
 ### Summary
-Operations complete without DUT error status, but C elements mismatch the reference for degenerate dimensions such as M=1, N<4, and narrow-column configurations, independent of precision and post-op.
+Operations completed without DUT error status, but back-to-back operations and degenerate dimensions such as M=1, N<4, and narrow-column configurations produced C mismatches. After the RTL defects were fixed, some multi-case tests still failed because the validation memory retained bytes from the previous case.
 
 ### Expected Behavior
 The DUT should match the reference for legal degenerate dimensions (e.g. M=1, N<4).
@@ -107,15 +108,27 @@ The DUT should match the reference for legal degenerate dimensions (e.g. M=1, N<
 C mismatches including `C[0,0] exp=15 act=0` (M=1,N=4,K=8 INT8), `C[0,0] exp=15 act=40` (M=1,N=8,K=8), and `C[0,0] exp=15 act=-2612` (M=1,N=1,K=8).
 
 ### Root Cause
-Under debug. Suspected: partial-tile row/col valid handling, B-stripe reload across N-tiles, and C-row-buffer writeback for single-row tiles.
+Three independent issues contributed to the failures:
+
+1. `accumulator.sv` ignored `clear_i` and `load_i`, so a new operation could reuse stale accumulation state.
+2. The systolic array consumed registered row/column valid masks on the compute launch edge. The registers were updated on that same edge, so partial tiles could start with the preceding tile's masks.
+3. The testbench repeatedly called SVT `write_num_byte` on the same A/B/C address ranges. In long multi-case sequences, shorter writes did not reliably replace all bytes observed by the slave memory model, creating false DUT mismatches from stale B data.
 
 ### Fix / Workaround
-None yet.
+The accumulator now honors clear and load controls. The systolic launch cycle selects the current combinational row/column valid masks, then uses the registered masks for the remaining compute cycles. Test data preload, C poisoning, and C readback now use SVT `write_byte`/`read_byte` per byte so each reused address is deterministically overwritten. Temporary debug instrumentation was removed after diagnosis.
+
+### Regression
+- `tensor_base_rect_matrix_test`: passed 5/5 cases, `UVM_ERROR=0`, `UVM_FATAL=0`
+- `tensor_base_degenerate_dims_test`: passed 31/31 cases, `UVM_ERROR=0`, `UVM_FATAL=0`
+- `tensor_base_non_aligned_size_test`: passed 5/5 cases, `UVM_ERROR=0`, `UVM_FATAL=0`
+- Build: `make -C tb/sim elab BUILD_NAME=mem_byte_fix`
+- Run timeout: `RUN_TIME=180s`
+- Date fixed: 2026-06-22
 
 ### Related Files
-- RTL: `tensor_accel_top.sv`, `load_scheduler.sv`, `store_fsm.sv`, `post_process_fsm.sv`
+- RTL: `accumulator.sv`, `tensor_accel_top.sv`
 - Testbench: `tensor_base_degenerate_dims_test.sv`
-- Sequence: `tensor_degenerate_dims_vseq.sv`
+- Sequence: `tensor_degenerate_dims_vseq.sv`, `tensor_matmul_vseq.sv`
 
 ---
 
@@ -233,16 +246,16 @@ The DUT should auto-split a legal word-aligned C write into multiple AXI bursts 
 
 ---
 
-## BUG-20260520-004-ACC-WWH: POST_BIAS partial-K tile produced bias-only results
+## BUG-20260520-004-ACC-WWH: Bulk bias preload caused false partial-K mismatches
 
 ### Status
-Open
+Fixed
 
 ### Severity
 MAJ
 
 ### Module
-ACC / CMPT
+TB
 
 ### First Found In
 - Test case: `tensor_base_saturation_test` development stimulus with `M=2, N=4, K=2`
@@ -251,7 +264,7 @@ ACC / CMPT
 - Date: 2026-05-20
 
 ### Summary
-A directed `POST_BIAS` case with a partial K tile (K=2) produced C values equal to the bias values instead of `accumulate + bias`. The committed saturation test uses a full `4x4x4` tile to isolate saturation behavior, but the partial-K biased behavior is a suspected DUT defect.
+Bias-enabled partial-K cases produced column-constant C mismatches and initially appeared to be an accumulator or post-process defect. The same signature later reproduced in `tensor_base_random_legal_test` seed 3 at `M=20, N=2, K=2`.
 
 ### Expected Behavior
 For `POST_BIAS`, each C element should be `accumulate + bias`, independent of whether the K tile is full or partial.
@@ -260,14 +273,20 @@ For `POST_BIAS`, each C element should be `accumulate + bias`, independent of wh
 Observed C values matched bias-only results with no contribution from the A/B accumulation. Operation completed without error.
 
 ### Root Cause
-Under debug. Suspected: compute/accumulator path may not preserve the partial-K accumulation result before `POST_BIAS`.
+Bias preload still used the SVT `write_num_byte` backdoor API after A/B/C preload had moved to deterministic byte writes. A controlled comparison using identical matrices and bias values failed with bulk bias preload and passed with per-byte preload. The RTL partial-K, bias, ReLU, and saturation paths were correct.
 
 ### Fix / Workaround
-None yet. Committed `tensor_base_saturation_test` uses full K=4 tile to isolate saturation behavior.
+Bias preload now uses `write_byte` for every byte in directed bias, saturation, and random legal sequences. Added `tensor_base_partial_k_postop_isolation_test` covering single and multi-M-tile operation, partial/full K, all four post-op modes, and both saturation modes.
+
+### Regression
+- `tensor_base_partial_k_postop_isolation_test`: passed 10/10 cases
+- `tensor_base_random_legal_test`, seed `3`, `RAND_ITERS=5`: passed 5/5 iterations
+- All runs: `UVM_ERROR=0`, `UVM_FATAL=0`
+- Date fixed: 2026-06-22
 
 ### Related Files
-- RTL: `tensor_accel_top.sv`, `accumulator.sv`, `post_process.sv`
-- Testbench: `tensor_base_saturation_test.sv`
+- Testbench: `tensor_base_partial_k_postop_isolation_test.sv`
+- Sequences: `tensor_partial_k_postop_vseq.sv`, `tensor_bias_vseq.sv`, `tensor_saturation_vseq.sv`, `tensor_random_legal_vseq.sv`
 
 ---
 
@@ -383,17 +402,56 @@ Initial bring-up: all-zero C output, AXI VIP X/Z on unused sideband and WDATA, a
 
 ---
 
+## BUG-20260622-001-DMAR-WWH: AXI read errors were missed on the direct receive path
+
+### Status
+Fixed
+
+### Severity
+MAJ
+
+### Module
+DMAR
+
+### First Found In
+- Test case: `tensor_err_axi_read_slverr_test`
+- Seed: `1`
+- Simulation command: `make -C tb/sim run TESTNAME=tensor_err_axi_read_slverr_test BUILD_NAME=fresh_regression RUN_TIME=180s`
+- Date: 2026-06-22
+
+### Summary
+Injected SLVERR/DECERR responses on A and B reads were accepted by AXI, but the operation completed with `STATUS.done=1` instead of entering the error state.
+
+### Root Cause
+`axi_read_dma` checked `RRESP` only when an accepted R beat was pushed into the read FIFO. A beat consumed through the no-backpressure `rbuf_direct` path bypassed that condition, so its error response was lost.
+
+### Fix / Workaround
+Sample `RRESP` on every `RVALID && RREADY` handshake. This covers both direct and FIFO-buffered receive paths without changing the data buffering behavior.
+
+### Regression
+- `tensor_err_axi_read_slverr_test`: passed A SLVERR, B DECERR, and Bias SLVERR cases
+- `tensor_err_axi_read_bias_error_test`: passed
+- `tensor_base_int8_4x4_test`: passed normal read path
+- All runs: `UVM_ERROR=0`, `UVM_FATAL=0`
+
+### Related Files
+- RTL: `axi_read_dma.sv`
+- Testbench: `tensor_axi_read_error_vseq.sv`
+
+---
+
 ## Open Bug Summary
 
 | Bug ID | Severity | Module | Title |
 |--------|----------|--------|-------|
-| BUG-20260526-002-TACC-WWH | MAJ | TACC/LOAD/STOR | Degenerate M/N dimensions produce C mismatches |
-| BUG-20260520-004-ACC-WWH | MAJ | ACC/CMPT | POST_BIAS partial-K tile produced bias-only results |
 
 ## Closed Bug Summary
 
 | Bug ID | Severity | Module | Title |
 |--------|----------|--------|-------|
+| BUG-20260520-004-ACC-WWH | MAJ | TB | Bulk bias preload caused false partial-K mismatches |
+| BUG-20260622-001-DMAR-WWH | MAJ | DMAR | AXI read errors were missed on the direct receive path |
+| BUG-20260526-002-TACC-WWH | MAJ | ACC/TACC/TB | Back-to-back and degenerate dimensions produce C mismatches |
 | BUG-20260526-001-ACC-WWH | MAJ | ACC | MAC accumulator truncated INT16 corner-data partial sums |
 | BUG-20260520-001-DMAW-WWH | MAJ | DMAW | AXI write DMA rejected 32-bit aligned C row addresses |
 | BUG-20260520-002-DMAR-LOAD-WWH | MAJ | DMAR/LOAD/TACC | Aligned row reads overlapped scratchpad rows |

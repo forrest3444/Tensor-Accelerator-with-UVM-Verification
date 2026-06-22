@@ -70,23 +70,6 @@ package tensor_pkg;
   } accel_status_t;
 
   typedef struct packed {
-    logic [31:0] total_cycles;
-    logic [31:0] load_cycles;
-    logic [31:0] compute_cycles;
-    logic [31:0] post_process_cycles;
-    logic [31:0] store_cycles;
-    logic [31:0] idle_or_wait_cycles;
-    logic [31:0] axi_read_bytes;
-    logic [31:0] axi_write_bytes;
-    logic [31:0] tile_count;
-    logic [31:0] read_burst_count;
-    logic [31:0] write_burst_count;
-    logic [31:0] stall_on_axi_read;
-    logic [31:0] stall_on_axi_write;
-    logic [31:0] stall_on_spad;
-  } perf_counter_t;
-
-  typedef struct packed {
     logic [31:0] addr;
     logic [31:0] byte_len;
     tensor_type_e tensor_type;

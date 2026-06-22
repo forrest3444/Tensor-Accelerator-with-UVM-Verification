@@ -37,6 +37,7 @@ directed_tests=(
   tensor_base_bias_relu_order_test
   tensor_base_saturation_test
   tensor_base_overflow_status_test
+  tensor_base_partial_k_postop_isolation_test
 )
 
 exception_tests=(
@@ -50,7 +51,6 @@ exception_tests=(
   tensor_err_axi_write_mid_row_error_test
   tensor_err_command_while_busy_test
   tensor_err_start_while_done_test
-  tensor_err_burst_cross_4kb_test
   tensor_err_burst_len_zero_test
   tensor_err_burst_len_exceed_test
   tensor_err_internal_timeout_test

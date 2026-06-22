@@ -215,20 +215,6 @@ package tensor_accel_reg_pkg;
     rand tensor_accel_irq_status_reg IRQ_STATUS;
     rand tensor_accel_rw_reg         OVF_COUNT;
     rand tensor_accel_error_code_reg ERROR_CODE;
-    rand tensor_accel_rw_reg         PERF_TOTAL;
-    rand tensor_accel_rw_reg         PERF_LOAD;
-    rand tensor_accel_rw_reg         PERF_COMPUTE;
-    rand tensor_accel_rw_reg         PERF_POST;
-    rand tensor_accel_rw_reg         PERF_STORE;
-    rand tensor_accel_rw_reg         PERF_IDLE;
-    rand tensor_accel_rw_reg         PERF_RD_BYTES;
-    rand tensor_accel_rw_reg         PERF_WR_BYTES;
-    rand tensor_accel_rw_reg         PERF_TILE_COUNT;
-    rand tensor_accel_rw_reg         PERF_RD_BURSTS;
-    rand tensor_accel_rw_reg         PERF_WR_BURSTS;
-    rand tensor_accel_rw_reg         PERF_RD_STALL;
-    rand tensor_accel_rw_reg         PERF_WR_STALL;
-    rand tensor_accel_rw_reg         PERF_SPAD_STALL;
 
     function new(string name = "tensor_accel_reg_block");
       super.new(name, UVM_NO_COVERAGE);
@@ -296,34 +282,6 @@ package tensor_accel_reg_pkg;
       ERROR_CODE.build();
       default_map.add_reg(ERROR_CODE, 'h005c, "RO");
 
-      PERF_TOTAL = create_rw_reg("PERF_TOTAL", 32'd0, "RO");
-      default_map.add_reg(PERF_TOTAL, 'h0060, "RO");
-      PERF_LOAD = create_rw_reg("PERF_LOAD", 32'd0, "RO");
-      default_map.add_reg(PERF_LOAD, 'h0064, "RO");
-      PERF_COMPUTE = create_rw_reg("PERF_COMPUTE", 32'd0, "RO");
-      default_map.add_reg(PERF_COMPUTE, 'h0068, "RO");
-      PERF_POST = create_rw_reg("PERF_POST", 32'd0, "RO");
-      default_map.add_reg(PERF_POST, 'h006c, "RO");
-      PERF_STORE = create_rw_reg("PERF_STORE", 32'd0, "RO");
-      default_map.add_reg(PERF_STORE, 'h0070, "RO");
-      PERF_IDLE = create_rw_reg("PERF_IDLE", 32'd0, "RO");
-      default_map.add_reg(PERF_IDLE, 'h0074, "RO");
-      PERF_RD_BYTES = create_rw_reg("PERF_RD_BYTES", 32'd0, "RO");
-      default_map.add_reg(PERF_RD_BYTES, 'h0078, "RO");
-      PERF_WR_BYTES = create_rw_reg("PERF_WR_BYTES", 32'd0, "RO");
-      default_map.add_reg(PERF_WR_BYTES, 'h007c, "RO");
-      PERF_TILE_COUNT = create_rw_reg("PERF_TILE_COUNT", 32'd0, "RO");
-      default_map.add_reg(PERF_TILE_COUNT, 'h0080, "RO");
-      PERF_RD_BURSTS = create_rw_reg("PERF_RD_BURSTS", 32'd0, "RO");
-      default_map.add_reg(PERF_RD_BURSTS, 'h0084, "RO");
-      PERF_WR_BURSTS = create_rw_reg("PERF_WR_BURSTS", 32'd0, "RO");
-      default_map.add_reg(PERF_WR_BURSTS, 'h0088, "RO");
-      PERF_RD_STALL = create_rw_reg("PERF_RD_STALL", 32'd0, "RO");
-      default_map.add_reg(PERF_RD_STALL, 'h008c, "RO");
-      PERF_WR_STALL = create_rw_reg("PERF_WR_STALL", 32'd0, "RO");
-      default_map.add_reg(PERF_WR_STALL, 'h0090, "RO");
-      PERF_SPAD_STALL = create_rw_reg("PERF_SPAD_STALL", 32'd0, "RO");
-      default_map.add_reg(PERF_SPAD_STALL, 'h0094, "RO");
     endfunction
 
     local function tensor_accel_rw_reg create_rw_reg(string name,

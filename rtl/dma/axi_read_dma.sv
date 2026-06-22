@@ -204,7 +204,7 @@ module axi_read_dma #(
         end
         spad_addr_q <= spad_addr_q + SPAD_WORD_BYTES;
       end
-      if (rbuf_push && m_axi_rresp[1]) begin
+      if (m_axi_rvalid && m_axi_rready && m_axi_rresp[1]) begin
         error_o <= 1'b1;
       end
     end

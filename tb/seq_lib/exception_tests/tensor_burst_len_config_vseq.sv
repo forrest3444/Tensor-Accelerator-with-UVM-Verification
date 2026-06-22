@@ -46,8 +46,7 @@ class tensor_burst_len_zero_vseq extends base_vseq;
       actual_error_code = error_code_e'(error_data[3:0]);
 
       if ((status_data[31:0] & STATUS_ERROR) != 0) begin
-        if (actual_error_code == ERR_AXI_READ_ERROR ||
-            actual_error_code == ERR_BURST_CROSS_4KB) begin
+        if (actual_error_code == ERR_AXI_READ_ERROR) begin
           if (cfg != null) cfg.add_seq_check_count();
           return;
         end

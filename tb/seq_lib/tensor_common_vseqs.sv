@@ -102,10 +102,6 @@ class tensor_program_seq extends base_vseq;
   endfunction
 
   virtual task body();
-    if (cfg != null && cfg.vip_cfg != null) begin
-      burst_len = (cfg.vip_cfg.max_burst_len > 255) ? 8'hff : cfg.vip_cfg.max_burst_len[7:0];
-    end
-
     `uvm_info(get_type_name(),
               $sformatf("Programming tensor op m=%0d n=%0d k=%0d precision=%0d post_op=%0d sat=%0d",
                         m_size, n_size, k_size, precision, post_op, sat_mode),

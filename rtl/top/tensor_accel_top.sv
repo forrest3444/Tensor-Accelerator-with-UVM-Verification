@@ -76,7 +76,6 @@ module tensor_accel_top
   accel_cfg_t cfg;
   accel_cfg_t cfg_active;
   accel_status_t status;
-  perf_counter_t perf;
   error_code_e cfg_error;
   error_code_e error_code;
   logic [31:0] ovf_count;
@@ -249,14 +248,6 @@ module tensor_accel_top
   logic post_process_active;
   logic compute_buffer_q;
   logic load_a_buffer_sel;
-  logic perf_active_q;
-  logic read_launch;
-  logic write_launch;
-  logic load_perf_active;
-  logic compute_perf_active;
-  logic post_perf_active;
-  logic store_perf_active;
-  logic phase_accounted;
   logic cfg_latch_en;
 
   assign irq = status.irq;
@@ -316,10 +307,8 @@ module tensor_accel_top
   assign read_row_bytes = read_desc_pop.row_bytes;
   assign read_ext_row_stride = read_desc_pop.ext_row_stride;
   assign read_spad_row_stride = read_desc_pop.spad_row_stride;
-  assign read_launch = read_start && !read_busy && !read_done;
   assign write_desc_push_en = store_desc_push;
   assign write_desc_pop_en = !write_desc_empty && !write_busy && !writer_done;
-  assign write_launch = write_desc_pop_en;
   assign write_desc_push.addr = cfg_active.c_base + active_store_c_ext_offset;
   assign write_desc_push.byte_len = active_store_c_row_bytes;
   assign write_desc_push.tensor_type = TENSOR_C;
@@ -331,11 +320,6 @@ module tensor_accel_top
   assign write_desc_push.ext_row_stride = cfg_active.n_size * 32'(OUT_BYTES);
   assign write_desc_push.spad_row_stride = 32'(TILE_N * OUT_BYTES);
   assign write_desc_push.is_last = 1'b0;
-  assign load_perf_active = load_a_start || load_b_start || load_bias_start || read_busy;
-  assign compute_perf_active = compute_active;
-  assign post_perf_active = post_process_active;
-  assign store_perf_active = store_start || store_busy || write_busy;
-  assign phase_accounted = load_perf_active || compute_perf_active || post_perf_active || store_perf_active;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -408,7 +392,6 @@ module tensor_accel_top
     .status_i(status),
     .error_code_i(error_code),
     .ovf_count_i(ovf_count),
-    .perf_i(perf),
     .cfg_o(cfg),
     .start_pulse_o(start_pulse),
     .soft_reset_pulse_o(soft_reset_pulse),
@@ -984,15 +967,6 @@ module tensor_accel_top
             end
           end
         end
-`ifdef DEBUG
-        if ((cfg_active.m_size == 32'd64) && (cfg_active.n_size == 32'd1) &&
-            (cfg_active.k_size == 32'd5)) begin
-          $display("[DBG_B_PANEL] t=%0t addr=0x%0h wdata=0x%08h wstrb=0x%0h byte_off=%0d row_slot=%0d byte_in_row=%0d tile_cols=%0d k_limit=%0d b_bytes=%0d b_stride=%0d",
-                   $time, ctrl_spad_addr, ctrl_spad_wdata, ctrl_spad_wstrb,
-                   byte_off, row_slot, byte_in_row, tile_cols, compute_k_limit,
-                   b_bytes, b_spad_stride);
-        end
-`endif
       end
       if ((ctrl_spad_addr >= bias_spad_offset) &&
           (ctrl_spad_addr < (bias_spad_offset + 16'(TILE_N * BIAS_BYTES)))) begin
@@ -1004,66 +978,4 @@ module tensor_accel_top
     end
   end
 
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      perf_active_q <= 1'b0;
-      perf <= '0;
-    end else if (soft_reset_pulse) begin
-      perf_active_q <= 1'b0;
-      perf <= '0;
-    end else begin
-      if (start_pulse) begin
-        perf_active_q <= 1'b1;
-        perf <= '0;
-      end else if (perf_active_q && (status.done || status.error)) begin
-        perf_active_q <= 1'b0;
-      end else if (perf_active_q) begin
-        perf.total_cycles <= perf.total_cycles + 1'b1;
-
-        if (load_perf_active) begin
-          perf.load_cycles <= perf.load_cycles + 1'b1;
-        end
-        if (compute_perf_active) begin
-          perf.compute_cycles <= perf.compute_cycles + 1'b1;
-        end
-        if (post_perf_active) begin
-          perf.post_process_cycles <= perf.post_process_cycles + 1'b1;
-        end
-        if (store_perf_active) begin
-          perf.store_cycles <= perf.store_cycles + 1'b1;
-        end
-        if (!phase_accounted) begin
-          perf.idle_or_wait_cycles <= perf.idle_or_wait_cycles + 1'b1;
-        end
-
-        if (read_launch) begin
-          perf.axi_read_bytes <= perf.axi_read_bytes + read_bytes;
-        end
-        if (write_launch) begin
-          perf.axi_write_bytes <= perf.axi_write_bytes +
-                                  (write_desc_pop.row_bytes * 32'(write_desc_pop.row_count));
-        end
-        if (compute_launch) begin
-          perf.tile_count <= perf.tile_count + 1'b1;
-        end
-        if (m_axi_arvalid && m_axi_arready) begin
-          perf.read_burst_count <= perf.read_burst_count + 1'b1;
-        end
-        if (m_axi_awvalid && m_axi_awready) begin
-          perf.write_burst_count <= perf.write_burst_count + 1'b1;
-        end
-        if ((m_axi_arvalid && !m_axi_arready) || (m_axi_rvalid && !m_axi_rready)) begin
-          perf.stall_on_axi_read <= perf.stall_on_axi_read + 1'b1;
-        end
-        if ((m_axi_awvalid && !m_axi_awready) ||
-            (m_axi_wvalid && !m_axi_wready) ||
-            (m_axi_bvalid && !m_axi_bready)) begin
-          perf.stall_on_axi_write <= perf.stall_on_axi_write + 1'b1;
-        end
-        if (spad_req && !spad_ready) begin
-          perf.stall_on_spad <= perf.stall_on_spad + 1'b1;
-        end
-      end
-    end
-  end
 endmodule

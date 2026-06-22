@@ -8,6 +8,7 @@ class tensor_accel_env extends uvm_env;
   tensor_accel_ref_model ref_model;
   tensor_accel_scoreboard scoreboard;
   tensor_accel_coverage coverage;
+  tensor_perf_monitor perf_monitor;
   svt_axi_system_env axi_system_env;
   tensor_accel_reg_block reg_model;
   tensor_accel_reg_adapter reg_adapter;
@@ -25,6 +26,7 @@ class tensor_accel_env extends uvm_env;
     end
 
     ref_model = tensor_accel_ref_model::type_id::create("ref_model", this);
+    perf_monitor = tensor_perf_monitor::type_id::create("perf_monitor", this);
     if (cfg.has_scoreboard) begin
       uvm_config_db #(tensor_accel_env_cfg)::set(this, "scoreboard", "cfg", cfg);
       scoreboard = tensor_accel_scoreboard::type_id::create("scoreboard", this);

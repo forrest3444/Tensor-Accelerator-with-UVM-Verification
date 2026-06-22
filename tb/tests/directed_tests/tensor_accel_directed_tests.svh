@@ -21,5 +21,6 @@
 `include "directed_tests/tensor_base_bias_relu_order_test.sv"
 `include "directed_tests/tensor_base_saturation_test.sv"
 `include "directed_tests/tensor_base_overflow_status_test.sv"
+`include "directed_tests/tensor_base_partial_k_postop_isolation_test.sv"
 
 `endif
