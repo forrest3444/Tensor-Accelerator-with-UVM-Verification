@@ -4,7 +4,8 @@ module tensor_loader #(
   parameter int SPAD_ADDR_WIDTH = 16,
   parameter int SPAD_DATA_WIDTH = 32,
   parameter int MAX_BURST_BEATS = 16,
-  parameter bit READ_AUTO_SPLIT_4KB = 1'b0
+  parameter bit READ_AUTO_SPLIT_4KB = 1'b0,
+  parameter int ROW_COUNT_WIDTH = 4
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -14,7 +15,7 @@ module tensor_loader #(
   input  logic [7:0]  burst_len_i,
   input  logic [15:0] spad_offset_i,
   input  logic        row_mode_i,
-  input  logic [2:0]  row_count_i,
+  input  logic [ROW_COUNT_WIDTH-1:0] row_count_i,
   input  logic [31:0] row_bytes_i,
   input  logic [31:0] ext_row_stride_i,
   input  logic [15:0] spad_row_stride_i,
@@ -59,12 +60,12 @@ module tensor_loader #(
   logic cross_4kb_q;
   logic row_start_pending_q;
   logic row_prepare_pending_q;
-  logic [2:0] row_q;
+  logic [ROW_COUNT_WIDTH-1:0] row_q;
   logic [31:0] base_ext_addr_q;
   logic [31:0] base_byte_len_q;
   logic [15:0] base_spad_offset_q;
   logic row_mode_q;
-  logic [2:0] row_count_q;
+  logic [ROW_COUNT_WIDTH-1:0] row_count_q;
   logic [31:0] row_bytes_q;
   logic [31:0] ext_row_stride_q;
   logic [15:0] spad_row_stride_q;
@@ -75,7 +76,7 @@ module tensor_loader #(
   logic last_row;
   logic launch_first;
   logic row_mode_eff;
-  logic [2:0] row_eff;
+  logic [ROW_COUNT_WIDTH-1:0] row_eff;
   logic [31:0] base_ext_addr_eff;
   logic [31:0] base_byte_len_eff;
   logic [15:0] base_spad_offset_eff;
@@ -85,7 +86,7 @@ module tensor_loader #(
   (* keep = "true" *) logic row_mode_addr_calc_q;
   (* keep = "true" *) logic row_mode_len_calc_q;
   (* keep = "true" *) logic row_mode_spad_calc_q;
-  logic [2:0] row_calc_q;
+  logic [ROW_COUNT_WIDTH-1:0] row_calc_q;
   logic [31:0] base_ext_addr_calc_q;
   logic [31:0] base_byte_len_calc_q;
   logic [15:0] base_spad_offset_calc_q;
@@ -94,7 +95,7 @@ module tensor_loader #(
   logic [15:0] spad_row_stride_calc_q;
 
   assign launch_first = start_i && !active_q && !dma_busy && !done_q;
-  assign row_eff = launch_first ? 3'd0 : row_q;
+  assign row_eff = launch_first ? '0 : row_q;
   assign row_mode_eff = launch_first ? row_mode_i : row_mode_q;
   assign base_ext_addr_eff = launch_first ? ext_addr_i : base_ext_addr_q;
   assign base_byte_len_eff = launch_first ? byte_len_i : base_byte_len_q;
@@ -102,11 +103,11 @@ module tensor_loader #(
   assign row_bytes_eff = launch_first ? row_bytes_i : row_bytes_q;
   assign ext_row_stride_eff = launch_first ? ext_row_stride_i : ext_row_stride_q;
   assign spad_row_stride_eff = launch_first ? spad_row_stride_i : spad_row_stride_q;
-  assign row_offset = {29'd0, row_calc_q} * ext_row_stride_calc_q;
+  assign row_offset = 32'(row_calc_q) * ext_row_stride_calc_q;
   assign row_ext_addr = base_ext_addr_calc_q + (row_mode_addr_calc_q ? row_offset : 32'd0);
   assign row_align_bytes = row_mode_addr_calc_q ? (row_ext_addr % 32'd8) : 32'd0;
   assign row_spad_offset = base_spad_offset_calc_q +
-                           (row_mode_spad_calc_q ? ({13'd0, row_calc_q} * spad_row_stride_calc_q) : 16'd0);
+                           (row_mode_spad_calc_q ? (16'(row_calc_q) * spad_row_stride_calc_q) : 16'd0);
   assign dma_addr = row_ext_addr - row_align_bytes;
   assign dma_byte_len = row_mode_len_calc_q ? (row_bytes_calc_q + row_align_bytes) : base_byte_len_calc_q;
   assign dma_spad_offset = row_spad_offset;
@@ -165,19 +166,19 @@ module tensor_loader #(
       dma_start <= 1'b0;
       row_start_pending_q <= 1'b0;
       row_prepare_pending_q <= 1'b0;
-      row_q <= 3'd0;
+      row_q <= '0;
       base_ext_addr_q <= 32'd0;
       base_byte_len_q <= 32'd0;
       base_spad_offset_q <= 16'd0;
       row_mode_q <= 1'b0;
-      row_count_q <= 3'd1;
+      row_count_q <= ROW_COUNT_WIDTH'(1);
       row_bytes_q <= 32'd0;
       ext_row_stride_q <= 32'd0;
       spad_row_stride_q <= 16'd0;
       row_mode_addr_calc_q <= 1'b0;
       row_mode_len_calc_q <= 1'b0;
       row_mode_spad_calc_q <= 1'b0;
-      row_calc_q <= 3'd0;
+      row_calc_q <= '0;
       base_ext_addr_calc_q <= 32'd0;
       base_byte_len_calc_q <= 32'd0;
       base_spad_offset_calc_q <= 16'd0;
@@ -198,12 +199,12 @@ module tensor_loader #(
         active_q <= 1'b1;
         error_q <= 1'b0;
         cross_4kb_q <= 1'b0;
-        row_q <= 3'd0;
+        row_q <= '0;
         base_ext_addr_q <= ext_addr_i;
         base_byte_len_q <= byte_len_i;
         base_spad_offset_q <= spad_offset_i;
         row_mode_q <= row_mode_i;
-        row_count_q <= (row_count_i == 3'd0) ? 3'd1 : row_count_i;
+        row_count_q <= (row_count_i == '0) ? ROW_COUNT_WIDTH'(1) : row_count_i;
         row_bytes_q <= row_bytes_i;
         ext_row_stride_q <= ext_row_stride_i;
         spad_row_stride_q <= spad_row_stride_i;

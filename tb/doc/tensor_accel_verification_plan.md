@@ -6,11 +6,11 @@
 
 本验证计划面向 `tensor_accel_top` 及其子模块的 UVM block-level 验证环境。DUT 主要包含以下功能域：
 
-- AXI-Lite 寄存器配置接口：配置矩阵维度、precision、post-op、saturation、DMA base address、scratchpad region、burst_len、start/clear/irq 控制。
+- AXI-Lite 寄存器配置接口：配置矩阵维度、precision、post-op、saturation、DMA base address、burst_len、start/clear/irq 控制。
 - AXI4 DMA 数据搬运接口：从外部 memory 读取 A/B/bias，向外部 memory 写回 C。
-- scratchpad 数据暂存与 region 检查。
+- scratchpad 数据暂存与硬件内部固定地址规划；C 结果不再持久化到 scratchpad，而是通过 post-process row buffer 流式写回。
 - 4x4 systolic array 计算、accumulator、post_process、saturate。
-- command_fsm、load_scheduler、tile_scheduler、tensor_loader、tensor_writer 等控制与调度逻辑。
+- command_fsm、load_scheduler、tile_count_fsm、buffer_manager_fsm、store_fsm、tensor_loader、tensor_writer 等控制与调度逻辑。
 - 状态、错误码、IRQ、overflow 标志和 reset/soft reset 行为。
 
 ### 1.2 覆盖范围
@@ -22,7 +22,7 @@
 - post-op：无后处理、bias、ReLU、bias + ReLU 顺序。
 - saturation：wrap 和 saturate 两种模式，overflow status 检查。
 - DMA 配置：burst_len 典型值、ready delay/backpressure、非对齐写回地址、4KB boundary 保护。
-- 错误处理：非法矩阵维度、非法 precision、base address 未对齐、region overlap、region out of range、region too small、AXI read/write SLVERR、中途 write error、internal timeout、busy/done 状态下重复 start。
+- 错误处理：非法矩阵维度、非法 precision、base address 未对齐、AXI read/write SLVERR、中途 write error、internal timeout、busy/done 状态下重复 start。
 - interrupt：正常完成 IRQ、错误完成 IRQ、IRQ clear。
 - reset：soft reset、idle soft reset、load/compute/store 阶段异步 reset。
 - constrained random：合法配置随机、corner data 随机、max stress 随机，并通过多 seed regression 扩展覆盖。
@@ -64,7 +64,6 @@
 | F018 | 非法矩阵尺寸 | M/N/K 为 0 或超过 MAX_DIM 时必须进入 error，ERROR_CODE 正确 | P0 | Negative directed | TC023 |
 | F019 | 非法 precision | 非 INT8/INT16 precision 编码必须报 ERR_ILLEGAL_PRECISION | P0 | Negative directed | TC024 |
 | F020 | base address 未对齐 | A/B/C/bias base address 未对齐时必须报 ERR_UNALIGNED_BASE_ADDR | P0 | Negative directed | TC025 |
-| F021 | scratchpad region overlap/out-of-range/too-small | region 配置非法时必须报对应 ERROR_CODE，不进入正常完成 | P0 | Negative directed region programming | TC026, TC027, TC028 |
 | F022 | AXI read error | AXI read SLVERR、bias read error 必须报 ERR_AXI_READ_ERROR | P0 | SVT AXI slave error injection | TC029, TC030 |
 | F023 | AXI write error | AXI write SLVERR、中途写错误必须报 ERR_AXI_WRITE_ERROR | P0 | SVT AXI slave error injection | TC031, TC032 |
 | F024 | command 状态机非法 start | busy 或 done 未清除时再次 start，必须报 command error 且状态符合预期 | P0 | Directed command hazard | TC033, TC034 |
@@ -72,7 +71,7 @@
 | F026 | internal timeout | AXI read 长时间无响应时进入 ERR_INTERNAL_TIMEOUT，不误判 done | P0 | Force rvalid low + monitor | TC038 |
 | F027 | reset/soft reset | soft reset 和 load/compute/store 阶段 reset 后状态、错误码、IRQ、活跃信号恢复正确 | P0 | Directed reset injection + recovery operation | TC039, TC040, TC041, TC042, TC043 |
 | F028 | error clear recovery | error clear 后可重新执行合法 operation 且结果正确 | P0 | Negative + clear + positive recovery | TC044 |
-| F029 | constrained random 合法空间 | 随机组合 M/N/K、precision、post-op、sat_mode、burst_len、base/region，提升交叉覆盖 | P1 | Constrained random multi-seed | TC045 |
+| F029 | constrained random 合法空间 | 随机组合 M/N/K、precision、post-op、sat_mode、burst_len、base，提升交叉覆盖 | P1 | Constrained random multi-seed | TC045 |
 | F030 | corner data random | 覆盖极值、负数、零、溢出倾向数据组合 | P1 | Constrained random corner operand | TC046 |
 | F031 | max stress random | 覆盖高维度和复杂配置压力组合 | P1 | Constrained random stress + multi-seed | TC047 |
 
@@ -105,28 +104,25 @@
 | TC023 | `tensor_err_illegal_matrix_size_test` | 验证非法矩阵尺寸 | M/N/K 为 0 或越界 | STATUS.error、ERR_ILLEGAL_MATRIX_SIZE | F018 |
 | TC024 | `tensor_err_illegal_precision_test` | 验证非法 precision | 写非法 precision 编码 | STATUS.error、ERR_ILLEGAL_PRECISION | F019 |
 | TC025 | `tensor_err_unaligned_base_test` | 验证 base address 未对齐 | A/B/C/bias base 低位非 0 | STATUS.error、ERR_UNALIGNED_BASE_ADDR | F020 |
-| TC026 | `tensor_err_region_overlap_test` | 验证 region overlap | 配置 scratchpad region 重叠 | STATUS.error、ERR_REGION_OVERLAP | F021 |
-| TC027 | `tensor_err_spad_out_of_range_test` | 验证 region out of range | offset+size 超出 SPAD_BYTES | STATUS.error、ERR_SPAD_OUT_OF_RANGE | F021 |
-| TC028 | `tensor_err_region_too_small_test` | 验证 region too small | region size 小于 tensor 需求 | STATUS.error、ERR_REGION_TOO_SMALL | F021 |
-| TC029 | `tensor_err_axi_read_slverr_test` | 验证 AXI read SLVERR | SVT AXI slave 注入 read SLVERR | STATUS.error、ERR_AXI_READ_ERROR | F022 |
-| TC030 | `tensor_err_axi_read_bias_error_test` | 验证 bias read error | bias 读取阶段注入 read error | STATUS.error、ERR_AXI_READ_ERROR | F022 |
-| TC031 | `tensor_err_axi_write_slverr_test` | 验证 AXI write SLVERR | SVT AXI slave 注入 write SLVERR | STATUS.error、ERR_AXI_WRITE_ERROR | F023 |
-| TC032 | `tensor_err_axi_write_mid_row_error_test` | 验证写回中途错误 | C 写回过程中注入 error | STATUS.error、ERR_AXI_WRITE_ERROR | F023 |
-| TC033 | `tensor_err_command_while_busy_test` | 验证 busy 期间重复 start | operation busy 后再次写 START | STATUS.error、ERR_COMMAND_WHILE_BUSY | F024 |
-| TC034 | `tensor_err_start_while_done_test` | 验证 done 未清除时重复 start | operation done 后不 clear 再 start | done 保持、error 置位、ERROR_CODE 正确 | F024 |
-| TC035 | `tensor_err_burst_cross_4kb_test` | 验证 burst 跨 4KB 保护 | 构造接近 4KB 边界的 base/burst | 无非法 AR burst、ERR_BURST_CROSS_4KB | F025 |
-| TC036 | `tensor_err_burst_len_zero_test` | 验证 burst_len=0 | DMA_CFG burst_len 写 0 | 不正常 done，进入 error 或 timeout 检查 | F014 |
-| TC037 | `tensor_err_burst_len_exceed_test` | 验证 burst_len 超限 | performance/超限 burst_len 配置 | AXI ARLEN 不超过允许值或报错 | F014 |
-| TC038 | `tensor_err_internal_timeout_test` | 验证 internal timeout | 强制 AXI RVALID 低 | STATUS.error、ERR_INTERNAL_TIMEOUT、无 done | F026 |
-| TC039 | `tensor_reset_during_load_test` | 验证 load 阶段 reset | load_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
-| TC040 | `tensor_reset_during_compute_test` | 验证 compute 阶段 reset | compute_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
-| TC041 | `tensor_reset_during_store_test` | 验证 store 阶段 reset | store_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
-| TC042 | `tensor_soft_reset_test` | 验证 busy 期间 soft reset | operation busy 后写 soft_reset | STATUS 清零、ERROR_CODE 清零、恢复 operation | F027 |
-| TC043 | `tensor_soft_reset_during_idle_test` | 验证 idle soft reset | idle 状态写 soft_reset | 无误报 error，寄存器状态合理 | F027 |
-| TC044 | `tensor_err_clear_error_recovery_test` | 验证 clear error 后恢复 | 先触发 error，再 clear，再执行合法 operation | error/irq 清除，合法 operation pass | F028 |
-| TC045 | `tensor_base_random_legal_test` | 验证合法随机配置空间 | constrained random，regression 中多 seed、多 iteration | done/no error、C memory compare、coverage sample | F029 |
-| TC046 | `tensor_base_random_corner_data_test` | 验证 corner data | 随机极值/零/负值/溢出倾向 operand | golden compare、overflow/saturation 行为 | F030 |
-| TC047 | `tensor_base_random_max_stress_test` | 验证高压力随机场景 | 大尺寸和复杂 post-op/sat 随机 | timeout 内完成、C memory compare | F031 |
+| TC026 | `tensor_err_axi_read_slverr_test` | 验证 AXI read SLVERR | SVT AXI slave 注入 read SLVERR | STATUS.error、ERR_AXI_READ_ERROR | F022 |
+| TC027 | `tensor_err_axi_read_bias_error_test` | 验证 bias read error | bias 读取阶段注入 read error | STATUS.error、ERR_AXI_READ_ERROR | F022 |
+| TC028 | `tensor_err_axi_write_slverr_test` | 验证 AXI write SLVERR | SVT AXI slave 注入 write SLVERR | STATUS.error、ERR_AXI_WRITE_ERROR | F023 |
+| TC029 | `tensor_err_axi_write_mid_row_error_test` | 验证写回中途错误 | C 写回过程中注入 error | STATUS.error、ERR_AXI_WRITE_ERROR | F023 |
+| TC030 | `tensor_err_command_while_busy_test` | 验证 busy 期间重复 start | operation busy 后再次写 START | STATUS.error、ERR_COMMAND_WHILE_BUSY | F024 |
+| TC031 | `tensor_err_start_while_done_test` | 验证 done 未清除时重复 start | operation done 后不 clear 再 start | done 保持、error 置位、ERROR_CODE 正确 | F024 |
+| TC032 | `tensor_err_burst_cross_4kb_test` | 验证 burst 跨 4KB 保护 | 构造接近 4KB 边界的 base/burst | 无非法 AR burst、ERR_BURST_CROSS_4KB | F025 |
+| TC033 | `tensor_err_burst_len_zero_test` | 验证 burst_len=0 | DMA_CFG burst_len 写 0 | 不正常 done，进入 error 或 timeout 检查 | F014 |
+| TC034 | `tensor_err_burst_len_exceed_test` | 验证 burst_len 超限 | performance/超限 burst_len 配置 | AXI ARLEN 不超过允许值或报错 | F014 |
+| TC035 | `tensor_err_internal_timeout_test` | 验证 internal timeout | 强制 AXI RVALID 低 | STATUS.error、ERR_INTERNAL_TIMEOUT、无 done | F026 |
+| TC036 | `tensor_reset_during_load_test` | 验证 load 阶段 reset | load_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
+| TC037 | `tensor_reset_during_compute_test` | 验证 compute 阶段 reset | compute_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
+| TC038 | `tensor_reset_during_store_test` | 验证 store 阶段 reset | store_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
+| TC039 | `tensor_soft_reset_test` | 验证 busy 期间 soft reset | operation busy 后写 soft_reset | STATUS 清零、ERROR_CODE 清零、恢复 operation | F027 |
+| TC040 | `tensor_soft_reset_during_idle_test` | 验证 idle soft reset | idle 状态写 soft_reset | 无误报 error，寄存器状态合理 | F027 |
+| TC041 | `tensor_err_clear_error_recovery_test` | 验证 clear error 后恢复 | 先触发 error，再 clear，再执行合法 operation | error/irq 清除，合法 operation pass | F028 |
+| TC042 | `tensor_base_random_legal_test` | 验证合法随机配置空间 | constrained random，regression 中多 seed、多 iteration | done/no error、C memory compare、coverage sample | F029 |
+| TC043 | `tensor_base_random_corner_data_test` | 验证 corner data | 随机极值/零/负值/溢出倾向 operand | golden compare、overflow/saturation 行为 | F030 |
+| TC044 | `tensor_base_random_max_stress_test` | 验证高压力随机场景 | 大尺寸和复杂 post-op/sat 随机 | timeout 内完成、C memory compare | F031 |
 
 ## 4. Checking Strategy
 
@@ -150,14 +146,16 @@
 
 ### 4.3 Assertion
 
-当前 regression 已开启 `-cm line+cond+fsm+branch+tgl+assert`，但 RTL/TB 中尚未发现 DUT 专用 SVA property。现阶段 assertion coverage 主要来自仿真器/VIP 侧统计，DUT 专用 assertion 需要补充。建议优先添加以下 assertion：
+当前 regression 已开启 `-cm line+cond+fsm+branch+tgl+assert`。DUT 内部固定 scratchpad 地址规划、descriptor FIFO 基本行为和 store row buffer 边界通过 assertion 检查，协议类 assertion 主要来自 VIP 侧。建议继续补充以下 assertion：
 
 - AXI-Lite：valid/ready 握手后 response 必须返回，读写 response 不为 X。
 - AXI4 read/write：burst 内 `len/size/last` 一致，禁止跨 4KB burst，`VALID` 保持直到 `READY`。
 - command_fsm：busy/done/error 状态互斥关系，非法 start 必须进入 error。
 - reset/soft reset：reset 后 busy/load/compute/store/irq/error 清零。
 - register：RO register 普通写不改变状态，clear pulse 只影响对应 sticky bit。
-- scratchpad region：region overlap/out-of-range/too-small 时禁止进入正常 DMA/compute。
+- scratchpad 固定规划：内部 A0/A1/B/bias window 不重叠、不越界。
+- store/writeback：post-process row index、store row buffer read/write index、write descriptor row_count 不越界。
+- config freeze：start 被接受后，operation 执行期使用 frozen config，mid-flight 软件写配置不影响当前 operation。
 
 ### 4.4 Monitor
 
@@ -201,7 +199,6 @@
 
 - `error_code` coverpoint 与 `error_code x irq_en` 交叉。
 - `reset_phase` coverpoint：idle/load/compute/store。
-- `region_error_type` coverpoint：overlap/out_of_range/too_small。
 - `axi_resp` coverpoint：OKAY/SLVERR for read/write。
 - `burst_cross_4kb`、`unaligned_base`、`command_hazard` 独立 coverpoint。
 
@@ -217,7 +214,7 @@ regression 脚本当前默认 `COV=1`，仿真命令开启：
 
 - Block-level merged line coverage >= 90%。
 - Branch/condition coverage >= 85%，未覆盖分支需要分类为不可达、异常分支待测或真实 coverage hole。
-- FSM coverage >= 90%，command_fsm、load_scheduler、tile_scheduler、DMA FSM 的主要状态和状态跳转必须覆盖。
+- FSM coverage >= 90%，command_fsm、load_scheduler、tile_count_fsm、buffer_manager_fsm、store_fsm、DMA FSM 的主要状态和状态跳转必须覆盖。
 - Toggle coverage 作为辅助指标，目标 >= 80%；对常量 tie-off、参数裁剪、未使用高位信号允许 waiver。
 - 覆盖报告输出目录为 `tb/sim/sim/merged_cov_report`，覆盖数据库为 `tb/sim/sim/merged_cov.vdb`。
 
@@ -233,7 +230,7 @@ regression 脚本当前默认 `COV=1`，仿真命令开启：
 - AXI handshake assertion pass coverage：100%。
 - command_fsm 状态互斥与非法 start assertion pass coverage：100%。
 - reset/soft reset 清零 assertion pass coverage：100%。
-- 4KB boundary、burst_len 限制、region legality assertion pass coverage：100%。
+- 4KB boundary、burst_len 限制、固定 scratchpad 地址规划 assertion pass coverage：100%。
 - 所有 assertion failure 均作为 P0/P1 bug 记录到 `tb/doc/bug_log.md`，除非已证明为 testbench 配置问题。
 
 ## 6. Regression Plan

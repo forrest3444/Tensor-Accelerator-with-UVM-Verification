@@ -1,10 +1,20 @@
-# Local agent/session metadata
+# =========================================================
+# Agent / IDE metadata
+# =========================================================
 .agents/
 .codex/
+.claude/
 
-# Simulator/build outputs
+# =========================================================
+# Simulator — build outputs
+# =========================================================
 tb/sim/csrc/
 tb/sim/sim/
+sim/
+
+# =========================================================
+# Simulator — waveform / coverage / debug dbs
+# =========================================================
 tb/sim/DVEfiles/
 tb/sim/verdiLog/
 tb/sim/urgReport/
@@ -13,21 +23,40 @@ tb/sim/inter.vpd
 tb/sim/*.vpd
 tb/sim/*.fsdb
 tb/sim/*.vdb
+tb/sim/env.*.xml
+*.fsdb
+*.vpd
+*.vdb
+
+# =========================================================
+# Simulator — transient logs & dumps
+# =========================================================
 tb/sim/*.log
 tb/sim/ucli.key
 tb/sim/vc_hdrs.h
-tb/sim/env.*.xml
+*.log
+ucli.key
+vc_hdrs.h
 
-# STA intermediate artifacts
+# =========================================================
+# STA — intermediate artifacts
+# =========================================================
 sta/build/
 sta/reports/
+sta/lib/
 
-# Common generated EDA artifacts
+# =========================================================
+# EDA — common generated
+# =========================================================
 csrc/
 *.daidir/
-*.vdb/
-*.fsdb
-*.vpd
-*.log
-vc_hdrs.h
-ucli.key
+
+# =========================================================
+# Editor / OS
+# =========================================================
+*.swp
+*.swo
+*~
+*.orig
+.DS_Store
+Thumbs.db

@@ -37,7 +37,6 @@ class tensor_soft_reset_vseq extends base_vseq;
     tensor_program_seq program_seq;
 
     program_seq = tensor_program_seq::type_id::create("program_seq");
-    program_seq.use_cfg_regions = 1'b0;
     program_seq.m_size = m_size;
     program_seq.n_size = n_size;
     program_seq.k_size = k_size;
@@ -48,14 +47,6 @@ class tensor_soft_reset_vseq extends base_vseq;
     program_seq.b_base = B_BASE;
     program_seq.c_base = C_BASE;
     program_seq.bias_base = BIAS_BASE;
-    program_seq.a_spad_offset = 32'h0000_0000;
-    program_seq.a_spad_size = 32'h0000_2000;
-    program_seq.b_spad_offset = 32'h0000_2000;
-    program_seq.b_spad_size = 32'h0000_2000;
-    program_seq.c_spad_offset = 32'h0000_4000;
-    program_seq.c_spad_size = 32'h0000_4000;
-    program_seq.bias_spad_offset = 32'h0000_8000;
-    program_seq.bias_spad_size = 32'h0000_0400;
     program_seq.burst_len = burst_len;
     program_seq.start(p_sequencer);
   endtask

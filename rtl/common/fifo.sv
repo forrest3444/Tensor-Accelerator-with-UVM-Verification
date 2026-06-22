@@ -46,4 +46,15 @@ module fifo #(
       endcase
     end
   end
+
+`ifdef ASSERT_ON
+  always_ff @(posedge clk) begin
+    if (rst_n && !clear_i) begin
+      assert (!(push_i && full_o && !pop_i))
+        else $fatal(1, "FIFO push while full");
+      assert (!(pop_i && empty_o && !push_i))
+        else $fatal(1, "FIFO pop while empty");
+    end
+  end
+`endif
 endmodule

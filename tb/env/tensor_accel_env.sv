@@ -24,10 +24,6 @@ class tensor_accel_env extends uvm_env;
       `uvm_info("ENV_CFG", "No env cfg found; using default Base Profile cfg", UVM_LOW)
     end
 
-    if (!cfg.regions_are_legal()) begin
-      `uvm_warning("ENV_CFG", "Default scratchpad regions are not legal")
-    end
-
     ref_model = tensor_accel_ref_model::type_id::create("ref_model", this);
     if (cfg.has_scoreboard) begin
       uvm_config_db #(tensor_accel_env_cfg)::set(this, "scoreboard", "cfg", cfg);

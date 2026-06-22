@@ -140,7 +140,6 @@ class tensor_axi_read_error_vseq extends base_vseq;
               UVM_MEDIUM)
 
     program_seq = tensor_program_seq::type_id::create("program_seq");
-    program_seq.use_cfg_regions = 1'b0;
     program_seq.m_size = 32'd4;
     program_seq.n_size = 32'd4;
     program_seq.k_size = 32'd4;
@@ -151,14 +150,6 @@ class tensor_axi_read_error_vseq extends base_vseq;
     program_seq.b_base = 32'h0002_0000;
     program_seq.c_base = 32'h0003_0000;
     program_seq.bias_base = 32'h0004_0000;
-    program_seq.a_spad_offset = 32'h0000_0000;
-    program_seq.a_spad_size = 32'h0000_2000;
-    program_seq.b_spad_offset = 32'h0000_2000;
-    program_seq.b_spad_size = 32'h0000_2000;
-    program_seq.c_spad_offset = 32'h0000_4000;
-    program_seq.c_spad_size = 32'h0000_4000;
-    program_seq.bias_spad_offset = 32'h0000_8000;
-    program_seq.bias_spad_size = 32'h0000_0400;
     program_seq.burst_len = 8'd16;
     program_seq.start(p_sequencer);
 

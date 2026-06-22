@@ -128,7 +128,7 @@ parameter int BIAS_BYTES = 4;
 
 需要检查和替换的典型位置：
 
-- `tile_scheduler.sv` 中的 `ceil_div4()`、`<< 2`、row/col valid loop。
+- `tile_count_fsm.sv` 中 tile count、row/col valid loop 和 C external offset 计算。
 - `load_scheduler.sv` 中 tile_rows/tile_cols/tile_k 的 `> 4` 判断。
 - `tensor_accel_top.sv` 中 row_base、col_base、k_base、compute_k_limit、C write byte 计算。
 - post-process writeback 计数和地址计算。
@@ -203,6 +203,13 @@ localparam int COMPUTE_PIPE_LATENCY = 3;
 - write descriptor FIFO：C store descriptor。
 - 初始深度建议 2 到 4。
 
+当前粗优化收尾状态：
+
+- read descriptor FIFO 已接入 A/B/bias load path。
+- write descriptor FIFO 已接入 C store path，当前主要作为 store FSM 与 writer 的结构解耦边界。
+- 为避免单个 `store_row_buffer` 被提前覆盖，buffer release 和 command done 仍严格等待实际 writer done；因此该 write FIFO 当前不作为性能收益项验收。
+- FIFO overflow/underflow、重复 store descriptor、零行 store descriptor 已补内部 assertion。
+
 收益：
 
 - scheduler 可提前准备下一笔 DMA。
@@ -214,7 +221,7 @@ localparam int COMPUTE_PIPE_LATENCY = 3;
 当前 `scratchpad_ctrl` 对 DMA 和 compute 单端口仲裁。performance 版本建议使用 ping-pong buffer 或 banked scratchpad：
 
 - buffer0 被 compute 使用时，buffer1 可加载下一 tile。
-- buffer0 store 时，buffer1 可加载或 compute。
+- C 不再持久化到 scratchpad，post-process 结果进入临时 `store_row_buffer` 后由 writer 按外部 row-major C 语义写回。
 - 每个 tile context 记录 `buffer_id`。
 
 第一步可以不改物理 memory 数量，只先在地址规划上切分 buffer region；第二步再改为多 bank 或双端口实现。
@@ -263,15 +270,35 @@ cycle window N:
 
 ### 7.3 关键工作
 
-#### 7.3.1 重构 command FSM
+#### 7.3.1 分层状态机
 
-当前 `command_fsm` 是阶段串行状态机。pipeline 版本建议拆分为：
+`command_fsm` 只保留命令级生命周期，不再承载 tile 内部流水细节：
 
-- tile issue controller
-- load tracker
-- compute tracker
-- store tracker
-- completion/error arbiter
+- `IDLE`
+- `CHECK_CONFIG`
+- `RUN`
+- `DONE`
+- `ERROR`
+
+tile pipeline 内部至少拆成以下子状态机，各子状态机通过 ready/valid/done 形式握手，不直接跳转对方状态：
+
+- `tile_count_fsm`：按 in-order 顺序产生 tile token，维护 `tile_m/tile_n/tile_k/last_tile`，不参与资源仲裁。
+- `buffer_manager_fsm`：维护每个 buffer 的所有权、hazard 检查和 in-order 提交窗口。
+- `load_fsm`：消费 load token，发起 A/B/bias read descriptor，并在 descriptor drain 后回写 buffer 状态。
+- `compute_fsm`：消费 ready-for-compute token，锁存 compute context，启动 array，完成后回写 buffer 状态。
+- `store_fsm`：消费 ready-for-store token，发起 C write descriptor/row writeback，完成后释放 buffer。
+
+子状态机之间只交换事件和 token，例如：
+
+- `tile_valid/tile_ready`
+- `load_req_valid/load_req_ready`
+- `load_done_valid/load_done_ready`
+- `compute_req_valid/compute_req_ready`
+- `compute_done_valid/compute_done_ready`
+- `store_req_valid/store_req_ready`
+- `store_done_valid/store_done_ready`
+
+所有 tile 必须严格 in-order issue、in-order compute、in-order store commit。允许 load/compute/store 并行，但不允许后续 tile 越过前序 tile 对外完成。
 
 #### 7.3.2 引入 tile context
 
@@ -288,12 +315,27 @@ cycle window N:
 - `buffer_id`
 - `post_op`
 - `sat_mode`
-- `c_spad_offset`
 - `c_ext_offset`
 
 #### 7.3.3 Buffer ownership
 
-需要定义 buffer 状态：
+每个 buffer 需要独立维护一组状态监测变量。建议最小集合：
+
+- `valid`
+- `tile_id`
+- `tile_m/tile_n/tile_k`
+- `a_region_state`
+- `b_region_state`
+- `c_region_state`
+- `bias_state`
+- `load_inflight`
+- `compute_inflight`
+- `store_inflight`
+- `ready_for_compute`
+- `ready_for_store`
+- `release_pending`
+
+buffer 主状态建议为：
 
 - free
 - loading
@@ -302,7 +344,15 @@ cycle window N:
 - ready_for_store
 - storing
 
-任何时候禁止多个 stage 写同一 buffer。
+任何时候禁止多个 stage 写同一可变 region。B 条带是按 N 复用的单条带资源，不作为 ping-pong bank；只有跨 N 且当前 compute 仍依赖旧 B 条带时，buffer manager 才能阻止下一 N 的 B load。A/C 使用 ping-pong buffer，bias 使用固定条带并在 compute 启动时锁存到 compute context。
+
+当前粗优化收尾后的 SPAD 地址规划采用：
+
+- A ping-pong bank0/bank1
+- B single stripe
+- bias single stripe
+
+B 输入矩阵默认由软件预转置，以便硬件按列条带顺序读取；C 外部矩阵契约保持 row-major。硬件内部使用多行写/row buffer 保持 C row-major 兼容，不要求软件改变 C 布局。
 
 #### 7.3.4 Error 和 reset 处理
 
@@ -379,6 +429,8 @@ cycle window N:
 
 建议 start 时 latch 一份 `cfg_active`，operation 期间所有控制和 datapath 使用 latched config，而不是直接使用 live register config。
 
+当前粗优化收尾状态：已在 top 中接入 `cfg_active`。寄存器文件仍暴露 live `cfg` 给软件读写；配置合法性检查继续基于 start 前的 live `cfg`；start 被接受后 scheduler、DMA、compute/post/store 数据通路使用 frozen `cfg_active`。
+
 收益：
 
 - 避免软件 mid-flight 改配置导致不可预测行为。
@@ -406,6 +458,8 @@ soft_reset > command_while_busy > config_error > 4KB_error > internal_timeout > 
 - descriptor FIFO 不 overflow/underflow。
 - ping-pong buffer ownership 不冲突。
 - pipeline 中 done 只能在所有 inflight tile 完成后置位。
+- store row buffer 读写 row index 不越界。
+- 固定 SPAD layout 中 A0/A1/B/bias window 不重叠且不越界。
 
 ### 9.4 Scoreboard 和 Monitor 收敛
 

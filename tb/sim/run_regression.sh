@@ -44,9 +44,6 @@ exception_tests=(
   tensor_err_illegal_precision_test
   tensor_err_unaligned_base_test
   tensor_err_clear_error_recovery_test
-  tensor_err_region_overlap_test
-  tensor_err_spad_out_of_range_test
-  tensor_err_region_too_small_test
   tensor_err_axi_read_slverr_test
   tensor_err_axi_read_bias_error_test
   tensor_err_axi_write_slverr_test

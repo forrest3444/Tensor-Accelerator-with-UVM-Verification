@@ -10,22 +10,6 @@ package tensor_accel_tb_cfg_pkg;
     TB_PROFILE_PERFORMANCE
   } tensor_accel_profile_e;
 
-  class tensor_accel_region_cfg extends uvm_object;
-    `uvm_object_utils(tensor_accel_region_cfg)
-
-    rand bit [31:0] offset;
-    rand bit [31:0] size;
-
-    constraint c_word_aligned {
-      offset[1:0] == 2'b00;
-      size[1:0]   == 2'b00;
-    }
-
-    function new(string name = "tensor_accel_region_cfg");
-      super.new(name);
-    endfunction
-  endclass
-
   class tensor_accel_vip_cfg extends uvm_object;
     `uvm_object_utils(tensor_accel_vip_cfg)
 
@@ -136,11 +120,7 @@ package tensor_accel_tb_cfg_pkg;
 
     tensor_accel_profile_e profile = TB_PROFILE_BASE;
 
-    tensor_accel_vip_cfg    vip_cfg;
-    tensor_accel_region_cfg a_region;
-    tensor_accel_region_cfg b_region;
-    tensor_accel_region_cfg c_region;
-    tensor_accel_region_cfg bias_region;
+    tensor_accel_vip_cfg vip_cfg;
 
     bit has_scoreboard = 1'b1;
     bit has_coverage   = 1'b0;
@@ -157,12 +137,7 @@ package tensor_accel_tb_cfg_pkg;
     function new(string name = "tensor_accel_env_cfg");
       super.new(name);
       vip_cfg = tensor_accel_vip_cfg::type_id::create("vip_cfg");
-      a_region = tensor_accel_region_cfg::type_id::create("a_region");
-      b_region = tensor_accel_region_cfg::type_id::create("b_region");
-      c_region = tensor_accel_region_cfg::type_id::create("c_region");
-      bias_region = tensor_accel_region_cfg::type_id::create("bias_region");
       set_base_profile();
-      set_default_regions();
     endfunction
 
     function void set_base_profile();
@@ -179,49 +154,6 @@ package tensor_accel_tb_cfg_pkg;
       vip_cfg.rd_outstanding = 2;
       vip_cfg.wr_outstanding = 2;
       vip_cfg.build_axi_system_cfg();
-    endfunction
-
-    function void set_default_regions();
-      a_region.offset    = 32'h0000_0000;
-      a_region.size      = 32'h0000_2000;
-      b_region.offset    = 32'h0000_2000;
-      b_region.size      = 32'h0000_2000;
-      c_region.offset    = 32'h0000_4000;
-      c_region.size      = 32'h0000_4000;
-      bias_region.offset = 32'h0000_8000;
-      bias_region.size   = 32'h0000_0400;
-    endfunction
-
-    function bit regions_are_legal();
-      bit legal;
-      legal = region_in_range(a_region) &&
-              region_in_range(b_region) &&
-              region_in_range(c_region) &&
-              region_in_range(bias_region);
-      legal &= !regions_overlap(a_region, b_region);
-      legal &= !regions_overlap(a_region, c_region);
-      legal &= !regions_overlap(a_region, bias_region);
-      legal &= !regions_overlap(b_region, c_region);
-      legal &= !regions_overlap(b_region, bias_region);
-      legal &= !regions_overlap(c_region, bias_region);
-      return legal;
-    endfunction
-
-    function bit region_in_range(tensor_accel_region_cfg region);
-      longint unsigned end_addr;
-      end_addr = longint'(region.offset) + longint'(region.size);
-      return (region.size != 0) && (end_addr <= spad_bytes);
-    endfunction
-
-    function bit regions_overlap(tensor_accel_region_cfg lhs,
-                                 tensor_accel_region_cfg rhs);
-      longint unsigned lhs_end;
-      longint unsigned rhs_end;
-      lhs_end = longint'(lhs.offset) + longint'(lhs.size);
-      rhs_end = longint'(rhs.offset) + longint'(rhs.size);
-      return (lhs.size != 0) && (rhs.size != 0) &&
-             (longint'(lhs.offset) < rhs_end) &&
-             (longint'(rhs.offset) < lhs_end);
     endfunction
 
     virtual function void add_seq_check_count(int unsigned val = 1);

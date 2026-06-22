@@ -2,7 +2,13 @@ module region_checker
   import tensor_pkg::*;
 #(
   parameter int SPAD_BYTES = tensor_pkg::SPAD_BYTES,
-  parameter int AXI_DATA_WIDTH = tensor_pkg::AXI_DATA_WIDTH
+  parameter int AXI_DATA_WIDTH = tensor_pkg::AXI_DATA_WIDTH,
+  parameter int TILE_M = tensor_pkg::ARRAY_M,
+  parameter int TILE_N = tensor_pkg::ARRAY_N,
+  parameter int OUT_BYTES = 4,
+  parameter int BIAS_BYTES = 4,
+  parameter int SPAD_BUFFER_BYTES = 4096,
+  parameter int SPAD_FIXED_BYTES = 4 * 4096
 ) (
   input  logic       clk,
   input  logic       rst_n,
@@ -14,53 +20,20 @@ module region_checker
   logic       valid_d;
   error_code_e error_code_d;
   logic [31:0] elem_b;
-  logic [31:0] a_need;
-  logic [31:0] b_need;
-  logic [31:0] c_need;
-  logic [31:0] bias_need;
   logic [31:0] beat_bytes;
   logic        matrix_ok;
   logic        precision_ok;
   logic        align_ok;
-  logic        range_ok;
-  logic        size_ok;
-  logic        overlap;
 
-  function automatic logic region_active(input logic [31:0] size);
-    return size != 32'd0;
-  endfunction
-
-  function automatic logic in_range(input logic [31:0] offset, input logic [31:0] size);
-    logic [32:0] end_addr;
-    begin
-      end_addr = {1'b0, offset} + {1'b0, size};
-      return (size != 32'd0) && (end_addr <= {1'b0, 32'(SPAD_BYTES)});
-    end
-  endfunction
-
-  function automatic logic overlaps(
-    input logic [31:0] off0,
-    input logic [31:0] size0,
-    input logic [31:0] off1,
-    input logic [31:0] size1
-  );
-    logic [32:0] end0;
-    logic [32:0] end1;
-    begin
-      end0 = {1'b0, off0} + {1'b0, size0};
-      end1 = {1'b0, off1} + {1'b0, size1};
-      return region_active(size0) && region_active(size1) &&
-             ({1'b0, off0} < end1) && ({1'b0, off1} < end0);
-    end
-  endfunction
+  localparam int MAX_ELEM_BYTES = 2;
+  localparam int MAX_ROW_BYTES  = (((MAX_DIM * MAX_ELEM_BYTES) + 7) / 8) * 8;
+  localparam int MAX_A_BYTES    = TILE_M * MAX_ROW_BYTES;
+  localparam int MAX_B_BYTES    = TILE_N * MAX_ROW_BYTES;
+  localparam int MAX_BIAS_BYTES = TILE_N * BIAS_BYTES;
 
   always_comb begin
     elem_b = elem_bytes(cfg_q.precision);
     beat_bytes = AXI_DATA_WIDTH / 8;
-    a_need = cfg_q.m_size * align8_bytes(cfg_q.k_size * elem_b);
-    b_need = cfg_q.n_size * align8_bytes(cfg_q.k_size * elem_b);
-    c_need = cfg_q.m_size * cfg_q.n_size * 32'd4;
-    bias_need = bias_enabled(cfg_q.post_op) ? (cfg_q.n_size * 32'd4) : 32'd0;
 
     matrix_ok = (cfg_q.m_size >= 1 && cfg_q.m_size <= MAX_DIM &&
                  cfg_q.n_size >= 1 && cfg_q.n_size <= MAX_DIM &&
@@ -69,29 +42,7 @@ module region_checker
     align_ok = ((cfg_q.a_base % beat_bytes) == 0) &&
                ((cfg_q.b_base % beat_bytes) == 0) &&
                (cfg_q.c_base[1:0] == 2'b00) &&
-               (!bias_enabled(cfg_q.post_op) || ((cfg_q.bias_base % beat_bytes) == 0)) &&
-               ((cfg_q.a_spad_offset[1:0] == 2'b00) &&
-                (cfg_q.b_spad_offset[1:0] == 2'b00) &&
-                (cfg_q.c_spad_offset[1:0] == 2'b00) &&
-                (!bias_enabled(cfg_q.post_op) || cfg_q.bias_spad_offset[1:0] == 2'b00));
-
-    range_ok = in_range(cfg_q.a_spad_offset, cfg_q.a_spad_size) &&
-               in_range(cfg_q.b_spad_offset, cfg_q.b_spad_size) &&
-               in_range(cfg_q.c_spad_offset, cfg_q.c_spad_size) &&
-               (!bias_enabled(cfg_q.post_op) || in_range(cfg_q.bias_spad_offset, cfg_q.bias_spad_size));
-
-    size_ok = cfg_q.a_spad_size >= a_need &&
-              cfg_q.b_spad_size >= b_need &&
-              cfg_q.c_spad_size >= c_need &&
-              (!bias_enabled(cfg_q.post_op) || cfg_q.bias_spad_size >= bias_need);
-
-    overlap = overlaps(cfg_q.a_spad_offset, cfg_q.a_spad_size, cfg_q.b_spad_offset, cfg_q.b_spad_size) ||
-              overlaps(cfg_q.a_spad_offset, cfg_q.a_spad_size, cfg_q.c_spad_offset, cfg_q.c_spad_size) ||
-              overlaps(cfg_q.b_spad_offset, cfg_q.b_spad_size, cfg_q.c_spad_offset, cfg_q.c_spad_size) ||
-              (bias_enabled(cfg_q.post_op) &&
-               (overlaps(cfg_q.bias_spad_offset, cfg_q.bias_spad_size, cfg_q.a_spad_offset, cfg_q.a_spad_size) ||
-                overlaps(cfg_q.bias_spad_offset, cfg_q.bias_spad_size, cfg_q.b_spad_offset, cfg_q.b_spad_size) ||
-                overlaps(cfg_q.bias_spad_offset, cfg_q.bias_spad_size, cfg_q.c_spad_offset, cfg_q.c_spad_size)));
+               (!bias_enabled(cfg_q.post_op) || ((cfg_q.bias_base % beat_bytes) == 0));
 
     valid_d = 1'b0;
     error_code_d = ERR_NO_ERROR;
@@ -101,16 +52,23 @@ module region_checker
       error_code_d = ERR_ILLEGAL_PRECISION;
     end else if (!align_ok) begin
       error_code_d = ERR_UNALIGNED_BASE_ADDR;
-    end else if (!range_ok) begin
-      error_code_d = ERR_SPAD_OUT_OF_RANGE;
-    end else if (overlap) begin
-      error_code_d = ERR_REGION_OVERLAP;
-    end else if (!size_ok) begin
-      error_code_d = ERR_REGION_TOO_SMALL;
     end else begin
       valid_d = 1'b1;
     end
   end
+
+`ifdef ASSERT_ON
+  initial begin
+    assert (SPAD_FIXED_BYTES <= SPAD_BYTES)
+      else $fatal(1, "Fixed scratchpad layout exceeds implemented SPAD capacity");
+    assert (MAX_A_BYTES <= SPAD_BUFFER_BYTES)
+      else $fatal(1, "A fixed scratchpad buffer is too small for the maximum tile");
+    assert (MAX_B_BYTES <= SPAD_BUFFER_BYTES)
+      else $fatal(1, "B fixed scratchpad buffer is too small for the maximum tile");
+    assert (MAX_BIAS_BYTES <= SPAD_BUFFER_BYTES)
+      else $fatal(1, "Bias fixed scratchpad buffer is too small for the maximum tile");
+  end
+`endif
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

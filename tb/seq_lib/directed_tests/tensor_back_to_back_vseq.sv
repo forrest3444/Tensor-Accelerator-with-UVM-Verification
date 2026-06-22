@@ -11,9 +11,6 @@ class tensor_back_to_back_vseq extends base_vseq;
     bit [31:0] a_base;
     bit [31:0] b_base;
     bit [31:0] c_base;
-    bit [31:0] a_spad_offset;
-    bit [31:0] b_spad_offset;
-    bit [31:0] c_spad_offset;
   } task_cfg_t;
 
   function new(string name = "tensor_back_to_back_vseq");
@@ -23,19 +20,14 @@ class tensor_back_to_back_vseq extends base_vseq;
   virtual task body();
     task_cfg_t tasks[$];
 
-    tasks.push_back('{4,  4,  4,  32'h0001_0000, 32'h0002_0000, 32'h0003_0000,
-                     32'h0000_0000, 32'h0000_2000, 32'h0000_4000});
-    tasks.push_back('{8,  4,  6,  32'h0001_8000, 32'h0002_8000, 32'h0003_8000,
-                     32'h0000_1000, 32'h0000_3000, 32'h0000_5000});
-    tasks.push_back('{3,  7,  5,  32'h0001_4000, 32'h0002_4000, 32'h0003_4000,
-                     32'h0000_0000, 32'h0000_2800, 32'h0000_6000});
-    tasks.push_back('{16, 8,  4,  32'h0001_c000, 32'h0002_c000, 32'h0003_c000,
-                     32'h0000_0800, 32'h0000_3800, 32'h0000_7000});
+    tasks.push_back('{4,  4,  4,  32'h0001_0000, 32'h0002_0000, 32'h0003_0000});
+    tasks.push_back('{8,  4,  6,  32'h0001_8000, 32'h0002_8000, 32'h0003_8000});
+    tasks.push_back('{3,  7,  5,  32'h0001_4000, 32'h0002_4000, 32'h0003_4000});
+    tasks.push_back('{16, 8,  4,  32'h0001_c000, 32'h0002_c000, 32'h0003_c000});
 
     foreach (tasks[idx]) begin
       tensor_matmul_vseq matmul_seq;
 
-      configure_regions(tasks[idx]);
       matmul_seq = tensor_matmul_vseq::type_id::create($sformatf("matmul_task_%0d",
                                                                  idx));
       matmul_seq.m_size = tasks[idx].m_size;
@@ -55,21 +47,6 @@ class tensor_back_to_back_vseq extends base_vseq;
       check_cleared_status(idx);
     end
   endtask
-
-  virtual function void configure_regions(task_cfg_t task_cfg);
-    if (cfg == null) begin
-      return;
-    end
-
-    cfg.a_region.offset = task_cfg.a_spad_offset;
-    cfg.a_region.size = 32'h0000_0800;
-    cfg.b_region.offset = task_cfg.b_spad_offset;
-    cfg.b_region.size = 32'h0000_0800;
-    cfg.c_region.offset = task_cfg.c_spad_offset;
-    cfg.c_region.size = 32'h0000_1000;
-    cfg.bias_region.offset = 32'h0000_9000;
-    cfg.bias_region.size = 32'h0000_0400;
-  endfunction
 
   virtual task check_cleared_status(int unsigned task_idx);
     uvm_reg_data_t status_data;

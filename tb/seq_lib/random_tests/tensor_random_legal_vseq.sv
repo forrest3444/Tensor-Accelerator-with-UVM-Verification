@@ -8,15 +8,10 @@ class tensor_random_legal_vseq extends tensor_matmul_vseq;
   rand bit [5:0] b_base_slot;
   rand bit [5:0] c_base_slot;
   rand bit [5:0] bias_base_slot;
-  rand bit [1:0] a_spad_slot;
-  rand bit [1:0] b_spad_slot;
-  rand bit [1:0] c_spad_slot;
-  rand bit [1:0] bias_spad_slot;
 
   int signed bias_data[];
 
   localparam bit [31:0] EXT_SLOT_BYTES  = 32'h0000_4000;
-  localparam bit [31:0] SPAD_SLOT_BYTES = 32'h0000_4000;
 
   constraint c_random_legal_dims {
     m_size inside {[1:64]};
@@ -48,15 +43,6 @@ class tensor_random_legal_vseq extends tensor_matmul_vseq;
     bias_base == (bias_base_slot * EXT_SLOT_BYTES);
   }
 
-  constraint c_random_legal_spad {
-    a_spad_slot != b_spad_slot;
-    a_spad_slot != c_spad_slot;
-    a_spad_slot != bias_spad_slot;
-    b_spad_slot != c_spad_slot;
-    b_spad_slot != bias_spad_slot;
-    c_spad_slot != bias_spad_slot;
-  }
-
   constraint c_random_legal_runtime {
     timeout_cycles == 0;
     poll_interval_cycles == 1000;
@@ -82,19 +68,7 @@ class tensor_random_legal_vseq extends tensor_matmul_vseq;
       return;
     end
 
-    cfg.a_region.offset = a_spad_slot * SPAD_SLOT_BYTES;
-    cfg.a_region.size = SPAD_SLOT_BYTES;
-    cfg.b_region.offset = b_spad_slot * SPAD_SLOT_BYTES;
-    cfg.b_region.size = SPAD_SLOT_BYTES;
-    cfg.c_region.offset = c_spad_slot * SPAD_SLOT_BYTES;
-    cfg.c_region.size = SPAD_SLOT_BYTES;
-    cfg.bias_region.offset = bias_spad_slot * SPAD_SLOT_BYTES;
-    cfg.bias_region.size = SPAD_SLOT_BYTES;
     cfg.vip_cfg.max_burst_len = burst_len;
-
-    if (!cfg.regions_are_legal()) begin
-      `uvm_fatal(get_type_name(), "Randomized SPAD regions are not legal")
-    end
   endfunction
 
   virtual function int unsigned effective_timeout_cycles();

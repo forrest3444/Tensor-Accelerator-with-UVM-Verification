@@ -18,8 +18,12 @@ module accumulator #(
         always_ff @(posedge clk or negedge rst_n) begin
           if (!rst_n) begin
             data_o[r][c] <= '0;
-          end else begin
+          end else if (clear_i) begin
+            data_o[r][c] <= '0;
+          end else if (load_i) begin
             data_o[r][c] <= data_i[r][c];
+          end else begin
+            data_o[r][c] <= data_o[r][c];
           end
         end
       end

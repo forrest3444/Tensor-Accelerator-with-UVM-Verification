@@ -10,7 +10,11 @@
 ../../rtl/bus/axi_lite_slave.sv
 
 ../../rtl/control/load_scheduler.sv
-../../rtl/control/tile_scheduler.sv
+../../rtl/control/tile_count_fsm.sv
+../../rtl/control/buffer_manager_fsm.sv
+../../rtl/control/compute_fsm.sv
+../../rtl/control/post_process_fsm.sv
+../../rtl/control/store_fsm.sv
 ../../rtl/control/command_fsm.sv
 
 ../../rtl/dma/dma_descriptor_fifo.sv
@@ -23,6 +27,7 @@
 ../../rtl/memory/region_checker.sv
 ../../rtl/memory/scratchpad.sv
 ../../rtl/memory/scratchpad_ctrl.sv
+../../rtl/memory/store_row_buffer.sv
 
 ../../rtl/compute/accumulator.sv
 ../../rtl/compute/pe.sv

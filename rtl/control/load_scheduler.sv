@@ -11,10 +11,14 @@ module load_scheduler
   input  logic clear_i,
   input  logic start_i,
   input  logic read_dma_done_i,
+  input  logic desc_ready_i,
   input  accel_cfg_t cfg_i,
   input  logic [5:0] tile_m_i,
   input  logic [5:0] tile_n_i,
   input  logic [5:0] tile_k_i,
+  input  logic [15:0] a_spad_base_i,
+  input  logic [15:0] b_spad_base_i,
+  input  logic [15:0] bias_spad_base_i,
   output logic done_o,
   output logic load_a_start_o,
   output logic load_b_start_o,
@@ -29,18 +33,19 @@ module load_scheduler
   output logic [15:0] b_spad_offset_o,
   output logic [15:0] bias_spad_offset_o
 );
-  typedef enum logic [10:0] {
-    LS_IDLE           = 11'b000_0000_0001,
-    LS_REQ_A          = 11'b000_0000_0010,
-    LS_WAIT_A_DESC    = 11'b000_0000_0100,
-    LS_LOAD_A         = 11'b000_0000_1000,
-    LS_REQ_B          = 11'b000_0001_0000,
-    LS_WAIT_B_DESC    = 11'b000_0010_0000,
-    LS_LOAD_B         = 11'b000_0100_0000,
-    LS_REQ_BIAS       = 11'b000_1000_0000,
-    LS_WAIT_BIAS_DESC = 11'b001_0000_0000,
-    LS_LOAD_BIAS      = 11'b010_0000_0000,
-    LS_DONE           = 11'b100_0000_0000
+  typedef enum logic [11:0] {
+    LS_IDLE           = 12'b0000_0000_0001,
+    LS_REQ_A          = 12'b0000_0000_0010,
+    LS_WAIT_A_DESC    = 12'b0000_0000_0100,
+    LS_LOAD_A         = 12'b0000_0000_1000,
+    LS_REQ_B          = 12'b0000_0001_0000,
+    LS_WAIT_B_DESC    = 12'b0000_0010_0000,
+    LS_LOAD_B         = 12'b0000_0100_0000,
+    LS_REQ_BIAS       = 12'b0000_1000_0000,
+    LS_WAIT_BIAS_DESC = 12'b0001_0000_0000,
+    LS_LOAD_BIAS      = 12'b0010_0000_0000,
+    LS_WAIT_DRAIN     = 12'b0100_0000_0000,
+    LS_DONE           = 12'b1000_0000_0000
   } load_state_e;
 
   load_state_e state_q;
@@ -50,6 +55,14 @@ module load_scheduler
   logic valid_s2_q;
   logic valid_s3_q;
   logic desc_valid_q;
+  logic [2:0] pending_desc_q;
+  logic desc_issue;
+  logic pending_done;
+  logic b_load_needed;
+  logic bias_load_needed;
+
+  assign b_load_needed = (tile_m_i == 6'd0);
+  assign bias_load_needed = bias_enabled(cfg_i.post_op) && (tile_m_i == 6'd0);
 
   logic [31:0] elem_b_s1_q;
   logic [31:0] row_base_s1_q;
@@ -100,11 +113,14 @@ module load_scheduler
 
   assign desc_req = (state_q == LS_REQ_A) || (state_q == LS_REQ_B) ||
                     (state_q == LS_REQ_BIAS);
-  assign done_o = ((state_q == LS_LOAD_B) && read_dma_done_i && !bias_enabled(cfg_i.post_op)) ||
-                  ((state_q == LS_LOAD_BIAS) && read_dma_done_i);
-  assign load_a_start_o = (state_q == LS_LOAD_A);
-  assign load_b_start_o = (state_q == LS_LOAD_B);
-  assign load_bias_start_o = (state_q == LS_LOAD_BIAS);
+  assign desc_issue = ((state_q == LS_LOAD_A) ||
+                       (state_q == LS_LOAD_B) ||
+                       (state_q == LS_LOAD_BIAS)) && desc_ready_i;
+  assign pending_done = (pending_desc_q == 3'd1) && read_dma_done_i && !desc_issue;
+  assign done_o = (state_q == LS_WAIT_DRAIN) && pending_done;
+  assign load_a_start_o = (state_q == LS_LOAD_A) && desc_ready_i;
+  assign load_b_start_o = (state_q == LS_LOAD_B) && desc_ready_i;
+  assign load_bias_start_o = (state_q == LS_LOAD_BIAS) && desc_ready_i;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -113,6 +129,7 @@ module load_scheduler
       valid_s2_q <= 1'b0;
       valid_s3_q <= 1'b0;
       desc_valid_q <= 1'b0;
+      pending_desc_q <= 3'd0;
       a_addr_o <= 32'd0;
       b_addr_o <= 32'd0;
       bias_addr_o <= 32'd0;
@@ -129,6 +146,7 @@ module load_scheduler
         valid_s2_q <= 1'b0;
         valid_s3_q <= 1'b0;
         desc_valid_q <= 1'b0;
+        pending_desc_q <= 3'd0;
       end else begin
         unique case (state_q)
           LS_IDLE: begin
@@ -141,7 +159,11 @@ module load_scheduler
             if (desc_valid_q) state_q <= LS_LOAD_A;
           end
           LS_LOAD_A: begin
-            if (read_dma_done_i) state_q <= LS_REQ_B;
+            if (desc_ready_i) begin
+              if (b_load_needed) state_q <= LS_REQ_B;
+              else if (bias_load_needed) state_q <= LS_REQ_BIAS;
+              else state_q <= LS_WAIT_DRAIN;
+            end
           end
           LS_REQ_B: begin
             state_q <= LS_WAIT_B_DESC;
@@ -150,12 +172,9 @@ module load_scheduler
             if (desc_valid_q) state_q <= LS_LOAD_B;
           end
           LS_LOAD_B: begin
-            if (read_dma_done_i) begin
-              if (bias_enabled(cfg_i.post_op)) begin
-                state_q <= LS_REQ_BIAS;
-              end else begin
-                state_q <= LS_DONE;
-              end
+            if (desc_ready_i) begin
+              if (bias_load_needed) state_q <= LS_REQ_BIAS;
+              else state_q <= LS_WAIT_DRAIN;
             end
           end
           LS_REQ_BIAS: begin
@@ -165,7 +184,10 @@ module load_scheduler
             if (desc_valid_q) state_q <= LS_LOAD_BIAS;
           end
           LS_LOAD_BIAS: begin
-            if (read_dma_done_i) state_q <= LS_DONE;
+            if (desc_ready_i) state_q <= LS_WAIT_DRAIN;
+          end
+          LS_WAIT_DRAIN: begin
+            if (pending_done) state_q <= LS_DONE;
           end
           LS_DONE: begin
             state_q <= LS_IDLE;
@@ -178,6 +200,12 @@ module load_scheduler
         valid_s3_q <= valid_s2_q;
         if (desc_req) desc_valid_q <= 1'b0;
         else if (valid_s3_q) desc_valid_q <= 1'b1;
+
+        unique case ({desc_issue, read_dma_done_i})
+          2'b10: pending_desc_q <= pending_desc_q + 1'b1;
+          2'b01: pending_desc_q <= pending_desc_q - 1'b1;
+          default: pending_desc_q <= pending_desc_q;
+        endcase
       end
 
       elem_b_s1_q <= elem_bytes(cfg_i.precision);
@@ -190,9 +218,9 @@ module load_scheduler
       a_base_s1_q <= cfg_i.a_base;
       b_base_s1_q <= cfg_i.b_base;
       bias_base_s1_q <= cfg_i.bias_base;
-      a_spad_offset_s1_q <= cfg_i.a_spad_offset;
-      b_spad_offset_s1_q <= cfg_i.b_spad_offset;
-      bias_spad_offset_s1_q <= cfg_i.bias_spad_offset;
+      a_spad_offset_s1_q <= {16'd0, a_spad_base_i};
+      b_spad_offset_s1_q <= {16'd0, b_spad_base_i};
+      bias_spad_offset_s1_q <= {16'd0, bias_spad_base_i};
       post_op_s1_q <= cfg_i.post_op;
 
       elem_b_s2_q <= elem_b_s1_q;

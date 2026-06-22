@@ -68,17 +68,8 @@ class tensor_program_seq extends base_vseq;
   rand bit [31:0] b_base;
   rand bit [31:0] c_base;
   rand bit [31:0] bias_base;
-  rand bit [31:0] a_spad_offset;
-  rand bit [31:0] a_spad_size;
-  rand bit [31:0] b_spad_offset;
-  rand bit [31:0] b_spad_size;
-  rand bit [31:0] c_spad_offset;
-  rand bit [31:0] c_spad_size;
-  rand bit [31:0] bias_spad_offset;
-  rand bit [31:0] bias_spad_size;
   rand bit [7:0] burst_len;
   bit irq_en;
-  bit use_cfg_regions;
 
   constraint c_typical_dims {
     m_size inside {[1:MAX_DIM]};
@@ -91,14 +82,6 @@ class tensor_program_seq extends base_vseq;
     b_base[2:0] == 3'b000;
     c_base[2:0] == 3'b000;
     bias_base[2:0] == 3'b000;
-    a_spad_offset[1:0] == 2'b00;
-    b_spad_offset[1:0] == 2'b00;
-    c_spad_offset[1:0] == 2'b00;
-    bias_spad_offset[1:0] == 2'b00;
-    a_spad_size[1:0] == 2'b00;
-    b_spad_size[1:0] == 2'b00;
-    c_spad_size[1:0] == 2'b00;
-    bias_spad_size[1:0] == 2'b00;
     burst_len inside {[1:16]};
   }
 
@@ -114,29 +97,12 @@ class tensor_program_seq extends base_vseq;
     b_base = 32'h0002_0000;
     c_base = 32'h0003_0000;
     bias_base = 32'h0004_0000;
-    a_spad_offset = 32'h0000_0000;
-    a_spad_size = 32'h0000_2000;
-    b_spad_offset = 32'h0000_2000;
-    b_spad_size = 32'h0000_2000;
-    c_spad_offset = 32'h0000_4000;
-    c_spad_size = 32'h0000_4000;
-    bias_spad_offset = 32'h0000_8000;
-    bias_spad_size = 32'h0000_0400;
     burst_len = 8'd16;
     irq_en = 1'b0;
-    use_cfg_regions = 1'b1;
   endfunction
 
   virtual task body();
-    if (use_cfg_regions && cfg != null) begin
-      a_spad_offset = cfg.a_region.offset;
-      a_spad_size = cfg.a_region.size;
-      b_spad_offset = cfg.b_region.offset;
-      b_spad_size = cfg.b_region.size;
-      c_spad_offset = cfg.c_region.offset;
-      c_spad_size = cfg.c_region.size;
-      bias_spad_offset = cfg.bias_region.offset;
-      bias_spad_size = cfg.bias_region.size;
+    if (cfg != null && cfg.vip_cfg != null) begin
       burst_len = (cfg.vip_cfg.max_burst_len > 255) ? 8'hff : cfg.vip_cfg.max_burst_len[7:0];
     end
 
@@ -155,14 +121,6 @@ class tensor_program_seq extends base_vseq;
     ral_write(reg_model.B_BASE, b_base);
     ral_write(reg_model.C_BASE, c_base);
     ral_write(reg_model.BIAS_BASE, bias_base);
-    ral_write(reg_model.A_SPAD_OFFSET, a_spad_offset);
-    ral_write(reg_model.A_SPAD_SIZE, a_spad_size);
-    ral_write(reg_model.B_SPAD_OFFSET, b_spad_offset);
-    ral_write(reg_model.B_SPAD_SIZE, b_spad_size);
-    ral_write(reg_model.C_SPAD_OFFSET, c_spad_offset);
-    ral_write(reg_model.C_SPAD_SIZE, c_spad_size);
-    ral_write(reg_model.BIAS_SPAD_OFFSET, bias_spad_offset);
-    ral_write(reg_model.BIAS_SPAD_SIZE, bias_spad_size);
     ral_write(reg_model.DMA_CFG, {24'd0, burst_len});
     ral_write(reg_model.CTRL, irq_en ? CTRL_IRQ_EN : 32'd0);
   endtask

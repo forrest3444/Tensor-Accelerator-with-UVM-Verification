@@ -36,8 +36,8 @@ module top_tb;
   assign axi_if.slave_if[0].awuser = '0;
   assign axi_if.slave_if[0].wuser = '0;
   assign dut_if.load_active = u_dut.read_busy;
-  assign dut_if.compute_active = u_dut.compute_active_q;
-  assign dut_if.store_active = u_dut.store_active_q;
+  assign dut_if.compute_active = u_dut.compute_active;
+  assign dut_if.store_active = u_dut.store_active;
   assign dut_m_axi_rvalid = dut_if.force_axi_rvalid_low ? 1'b0 : axi_if.slave_if[0].rvalid;
   assign dut_if.axi_rvalid_to_dut = dut_m_axi_rvalid;
 

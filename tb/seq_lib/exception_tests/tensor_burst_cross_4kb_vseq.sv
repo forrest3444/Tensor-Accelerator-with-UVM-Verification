@@ -63,7 +63,6 @@ class tensor_burst_cross_4kb_vseq extends base_vseq;
               UVM_MEDIUM)
 
     program_seq = tensor_program_seq::type_id::create("program_seq");
-    program_seq.use_cfg_regions = 1'b0;
     program_seq.m_size = burst_case.m_size;
     program_seq.n_size = burst_case.n_size;
     program_seq.k_size = burst_case.k_size;
@@ -74,14 +73,6 @@ class tensor_burst_cross_4kb_vseq extends base_vseq;
     program_seq.b_base = burst_case.b_base;
     program_seq.c_base = C_BASE;
     program_seq.bias_base = BIAS_BASE;
-    program_seq.a_spad_offset = 32'h0000_0000;
-    program_seq.a_spad_size = 32'h0000_2000;
-    program_seq.b_spad_offset = 32'h0000_2000;
-    program_seq.b_spad_size = 32'h0000_2000;
-    program_seq.c_spad_offset = 32'h0000_4000;
-    program_seq.c_spad_size = 32'h0000_4000;
-    program_seq.bias_spad_offset = 32'h0000_8000;
-    program_seq.bias_spad_size = 32'h0000_0400;
     program_seq.burst_len = 8'd16;
     program_seq.start(p_sequencer);
 

@@ -93,7 +93,6 @@ class tensor_matmul_vseq extends base_vseq;
     program_seq.bias_base = bias_base;
     program_seq.burst_len = burst_len;
     program_seq.irq_en = irq_en;
-    program_seq.use_cfg_regions = 1'b1;
     program_seq.start(p_sequencer);
 
     start_seq = tensor_start_seq::type_id::create("start_seq");
@@ -198,6 +197,17 @@ class tensor_matmul_vseq extends base_vseq;
         pack_elem_le(b_data[src_idx], b_bytes, dst_byte);
       end
     end
+
+`ifdef DEBUG
+    if ((m_size == 32'd64) && (n_size == 32'd1) && (k_size == 32'd5)) begin
+      `uvm_info(get_type_name(),
+                $sformatf("DBG_TB_B_PRELOAD size=%0d stride=%0d bytes=%02x %02x %02x %02x %02x %02x %02x %02x",
+                          b_bytes.size(), panel_row_stride,
+                          b_bytes[0], b_bytes[1], b_bytes[2], b_bytes[3],
+                          b_bytes[4], b_bytes[5], b_bytes[6], b_bytes[7]),
+                UVM_LOW)
+    end
+`endif
 
     env.axi_system_env.slave[0].write_num_byte(a_base, a_bytes.size(), a_bytes);
     env.axi_system_env.slave[0].write_num_byte(b_base, b_bytes.size(), b_bytes);

@@ -4,18 +4,12 @@
 class tensor_bias_vseq extends tensor_matmul_vseq;
   `uvm_object_utils(tensor_bias_vseq)
 
-  rand bit [31:0] bias_spad_offset;
-  rand bit [31:0] bias_spad_size;
-  rand bit use_cfg_regions;
   int signed bias_data[];
 
   function new(string name = "tensor_bias_vseq");
     super.new(name);
     post_op = POST_BIAS;
     bias_base = 32'h0005_0080;
-    bias_spad_offset = 32'h0000_9000;
-    bias_spad_size = 32'h0000_0400;
-    use_cfg_regions = 1'b0;
   endfunction
 
   virtual task body();

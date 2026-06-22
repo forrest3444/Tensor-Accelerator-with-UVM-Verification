@@ -58,6 +58,7 @@ module axi_read_dma #(
   logic [7:0] burst_beats;
   logic [31:0] burst_bytes;
   logic splitter_valid;
+  logic splitter_cross_4kb;
   logic [AXI_ADDR_WIDTH-1:0] dma_addr_q;
   logic [31:0] bytes_remaining_q;
   logic [AXI_ADDR_WIDTH-1:0] split_addr;
@@ -87,10 +88,11 @@ module axi_read_dma #(
     .burst_len_i(burst_len_i),
     .burst_beats_o(burst_beats),
     .burst_bytes_o(burst_bytes),
-    .crosses_4kb_o(cross_4kb_o),
+    .crosses_4kb_o(splitter_cross_4kb),
     .valid_o(splitter_valid)
   );
 
+  assign cross_4kb_o = !AUTO_SPLIT_4KB && splitter_cross_4kb;
   assign split_addr = state_q[S_IDLE] ? addr_i : dma_addr_q;
   assign split_bytes = state_q[S_IDLE] ? byte_len_i : bytes_remaining_q;
   assign m_axi_araddr = dma_addr_q;

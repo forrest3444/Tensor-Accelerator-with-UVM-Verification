@@ -37,10 +37,7 @@ package tensor_pkg;
     ERR_AXI_WRITE_ERROR     = 4'h5,
     ERR_COMMAND_WHILE_BUSY  = 4'h6,
     ERR_INTERNAL_TIMEOUT    = 4'h7,
-    ERR_REGION_OVERLAP      = 4'h8,
-    ERR_SPAD_OUT_OF_RANGE   = 4'h9,
-    ERR_REGION_TOO_SMALL    = 4'ha,
-    ERR_BURST_CROSS_4KB     = 4'hb
+    ERR_BURST_CROSS_4KB     = 4'h8
   } error_code_e;
 
   typedef enum logic [2:0] {
@@ -61,14 +58,6 @@ package tensor_pkg;
     logic [31:0] b_base;
     logic [31:0] c_base;
     logic [31:0] bias_base;
-    logic [31:0] a_spad_offset;
-    logic [31:0] a_spad_size;
-    logic [31:0] b_spad_offset;
-    logic [31:0] b_spad_size;
-    logic [31:0] c_spad_offset;
-    logic [31:0] c_spad_size;
-    logic [31:0] bias_spad_offset;
-    logic [31:0] bias_spad_size;
     logic [7:0]  burst_len;
   } accel_cfg_t;
 
@@ -103,6 +92,11 @@ package tensor_pkg;
     tensor_type_e tensor_type;
     logic [15:0] tile_index;
     logic [31:0] spad_offset;
+    logic row_mode;
+    logic [3:0] row_count;
+    logic [31:0] row_bytes;
+    logic [31:0] ext_row_stride;
+    logic [31:0] spad_row_stride;
     logic is_last;
   } dma_desc_t;
 
