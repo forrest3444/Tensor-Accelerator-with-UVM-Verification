@@ -10,6 +10,7 @@ class tensor_bb_precision_switch_vseq extends base_vseq;
 
   virtual task body();
     for (int round = 0; round < 3; round++) begin
+      run_precision_case(round, PREC_INT4);
       run_precision_case(round, PREC_INT8);
       run_precision_case(round, PREC_INT16);
     end
@@ -19,7 +20,9 @@ class tensor_bb_precision_switch_vseq extends base_vseq;
     tensor_matmul_vseq matmul_seq;
     string precision_name;
 
-    precision_name = (precision == PREC_INT16) ? "INT16" : "INT8";
+    precision_name = (precision == PREC_INT16) ? "INT16" :
+                     (precision == PREC_INT4)  ? "INT4" :
+                                                 "INT8";
     `uvm_info(get_type_name(),
               $sformatf("Round %0d running %s 4x4x4 matmul",
                         round, precision_name),

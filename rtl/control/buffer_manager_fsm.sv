@@ -1,7 +1,8 @@
 module buffer_manager_fsm
   import tensor_pkg::*;
 #(
-  parameter int SPAD_BUFFER_BYTES = 4096
+  parameter int SPAD_BUFFER_BYTES = 1024,
+  parameter int SPAD_BYTES = tensor_pkg::SPAD_BYTES
 )
 (
   input  logic clk,
@@ -29,9 +30,9 @@ module buffer_manager_fsm
   } buffer_state_e;
 
   localparam logic [15:0] A_SPAD_BASE0    = 16'h0000;
-  localparam logic [15:0] A_SPAD_BASE1    = 16'h1000;
-  localparam logic [15:0] B_SPAD_BASE0    = 16'h2000;
-  localparam logic [15:0] BIAS_SPAD_BASE  = 16'h3000;
+  localparam logic [15:0] A_SPAD_BASE1    = 16'(SPAD_BUFFER_BYTES);
+  localparam logic [15:0] B_SPAD_BASE0    = 16'(2 * SPAD_BUFFER_BYTES);
+  localparam logic [15:0] BIAS_SPAD_BASE  = 16'(3 * SPAD_BUFFER_BYTES);
 
   buffer_state_e buffer_state_q [2];
   logic next_tile_m_wrap;

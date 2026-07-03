@@ -35,6 +35,7 @@ class tensor_accel_coverage extends tensor_accel_subscriber;
       bins max = {64};
     }
     cp_precision: coverpoint sampled_precision {
+      bins int4  = {PREC_INT4};
       bins int8  = {PREC_INT8};
       bins int16 = {PREC_INT16};
     }

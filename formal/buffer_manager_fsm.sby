@@ -1,0 +1,17 @@
+[options]
+mode bmc
+depth 8
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv tensor_pkg_yosys.sv
+read_verilog -formal -sv buffer_manager_fsm_yosys.sv
+read_verilog -formal -sv buffer_manager_fsm_formal.sv
+prep -top buffer_manager_fsm_formal
+
+[files]
+tensor_pkg_yosys.sv
+compat/buffer_manager_fsm_yosys.sv
+buffer_manager_fsm_formal.sv

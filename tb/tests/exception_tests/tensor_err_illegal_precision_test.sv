@@ -14,7 +14,7 @@ class tensor_err_illegal_precision_test extends base_test;
 
     phase.raise_objection(this);
     vseq = tensor_illegal_precision_vseq::type_id::create("vseq");
-    vseq.illegal_precision = 2'd2;
+    vseq.illegal_precision = 2'd3;
     vseq.start(env.axi_system_env.sequencer);
     phase.drop_objection(this);
   endtask

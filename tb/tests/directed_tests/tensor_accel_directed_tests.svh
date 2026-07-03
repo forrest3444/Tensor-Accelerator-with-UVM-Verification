@@ -2,6 +2,7 @@
 `define TENSOR_ACCEL_DIRECTED_TESTS_SVH
 
 `include "directed_tests/tensor_base_reg_rw_test.sv"
+`include "directed_tests/tensor_base_int4_4x4_test.sv"
 `include "directed_tests/tensor_base_int8_4x4_test.sv"
 `include "directed_tests/tensor_base_int16_4x4_test.sv"
 `include "directed_tests/tensor_base_int16_max_stress_test.sv"

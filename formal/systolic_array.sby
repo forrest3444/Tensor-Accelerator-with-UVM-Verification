@@ -1,0 +1,21 @@
+[options]
+mode bmc
+depth 8
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv tensor_pkg_yosys.sv
+read_verilog -formal -sv mac_unit_yosys.sv
+read_verilog -formal -sv pe_yosys.sv
+read_verilog -formal -sv systolic_array_yosys.sv
+read_verilog -formal -sv systolic_array_formal.sv
+prep -top systolic_array_formal
+
+[files]
+tensor_pkg_yosys.sv
+compat/mac_unit_yosys.sv
+compat/pe_yosys.sv
+compat/systolic_array_yosys.sv
+systolic_array_formal.sv

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 SEED="${SEED:-1}"
-RUN_TIME="${RUN_TIME:-1us}"
+RUN_TIME="${RUN_TIME:-10s}"
 VERB="${VERB:-UVM_MEDIUM}"
 TB_TOP="${TB_TOP:-top_tb}"
 FILELIST="${FILELIST:-./filelist.f}"
@@ -15,6 +15,7 @@ MERGED_COV_REPORT_DIR="${MERGED_COV_REPORT_DIR:-sim/merged_cov_report}"
 
 directed_tests=(
   tensor_base_reg_rw_test
+  tensor_base_int4_4x4_test
   tensor_base_int8_4x4_test
   tensor_base_int16_4x4_test
   tensor_base_int16_max_stress_test
@@ -49,6 +50,7 @@ exception_tests=(
   tensor_err_axi_read_bias_error_test
   tensor_err_axi_write_slverr_test
   tensor_err_axi_write_mid_row_error_test
+  tensor_err_command_fsm_error_arc_test
   tensor_err_command_while_busy_test
   tensor_err_start_while_done_test
   tensor_err_burst_len_zero_test

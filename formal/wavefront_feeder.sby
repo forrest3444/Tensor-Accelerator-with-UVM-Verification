@@ -1,0 +1,15 @@
+[options]
+mode prove
+depth 1
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv wavefront_feeder.sv
+read_verilog -formal -sv wavefront_feeder_formal.sv
+prep -top wavefront_feeder_formal
+
+[files]
+../rtl/compute/wavefront_feeder.sv
+wavefront_feeder_formal.sv

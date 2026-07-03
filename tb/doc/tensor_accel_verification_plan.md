@@ -1,249 +1,650 @@
-# Tensor Accel UVM 验证计划
+# Tensor Accelerator 验证计划
 
-## 1. 验证范围
+## 1. 文档概述
 
-### 1.1 验证对象
+### 1.1 文档目的
 
-本验证计划面向 `tensor_accel_top` 及其子模块的 UVM block-level 验证环境。DUT 主要包含以下功能域：
+本文档为 `tensor_accel_top` 定义完整验证计划。基于当前 RTL 实现和 RTL SPEC，作为定向测试、约束随机测试、覆盖率收敛、断言、回归、bug 跟踪和签核的验证单一事实来源。
 
-- AXI-Lite 寄存器配置接口：配置矩阵维度、precision、post-op、saturation、DMA base address、burst_len、start/clear/irq 控制。
-- AXI4 DMA 数据搬运接口：从外部 memory 读取 A/B/bias，向外部 memory 写回 C。
-- scratchpad 数据暂存与硬件内部固定地址规划；C 结果不再持久化到 scratchpad，而是通过 post-process row buffer 流式写回。
-- 4x4 systolic array 计算、accumulator、post_process、saturate。
-- command_fsm、load_scheduler、tile_count_fsm、buffer_manager_fsm、store_fsm、tensor_loader、tensor_writer 等控制与调度逻辑。
-- 状态、错误码、IRQ、overflow 标志和 reset/soft reset 行为。
+### 1.2 适用范围
 
-### 1.2 覆盖范围
+| 范围 | 描述 |
+| ---- | ---- |
+| DUT | `tensor_accel_top` 及全部集成的 RTL 子模块 |
+| 验证层级 | Block/subsystem 级 RTL 仿真 |
+| 验证类型 | 功能验证、覆盖率驱动验证、错误注入、回归 |
+| 测试语言 | SystemVerilog / UVM |
+| 主要方法学 | 定向 + 约束随机 + scoreboard + 覆盖率 |
 
-当前 UVM 环境覆盖以下内容：
+**范围内：**
 
-- AXI-Lite register reset、读写、reserved bit、RO register 保护。
-- 合法矩阵乘法：INT8/INT16、方阵、矩形矩阵、非 4 对齐尺寸、退化维度、最大 64x64 维度。
-- post-op：无后处理、bias、ReLU、bias + ReLU 顺序。
-- saturation：wrap 和 saturate 两种模式，overflow status 检查。
-- DMA 配置：burst_len 典型值、ready delay/backpressure、非对齐写回地址、4KB boundary 保护。
-- 错误处理：非法矩阵维度、非法 precision、base address 未对齐、AXI read/write SLVERR、中途 write error、internal timeout、busy/done 状态下重复 start。
-- interrupt：正常完成 IRQ、错误完成 IRQ、IRQ clear。
-- reset：soft reset、idle soft reset、load/compute/store 阶段异步 reset。
-- constrained random：合法配置随机、corner data 随机、max stress 随机，并通过多 seed regression 扩展覆盖。
-- 代码覆盖：regression 脚本开启 `line+cond+fsm+branch+tgl+assert` 并执行 merge。
+- AXI-Lite 寄存器编程和状态行为。
+- 通过集成 memory model/VIP 的 AXI4 读写 DMA 行为。
+- INT4、INT8、INT16 矩阵乘法数据通路。
+- Bias、ReLU、wrap、saturation、overflow tracking 和 IRQ 行为。
+- A 乒乓缓冲、B 单条带复用、固定 Bias 窗口和内部 SPAD 布局。
+- 读 descriptor FIFO、写 descriptor FIFO、读 4KB split 选项和写 4KB 错误上报。
+- Load/compute 重叠和 post/store/writeback 行为。
+- 固定 `C_STORE_NBLOCK=2` C store coalescing，保持外部 row-major C 布局。
+- Reset、soft reset、命令冲突、合法随机配置和定向错误注入。
+- 功能覆盖率和代码覆盖率收敛及记录过的 waivers。
 
-### 1.3 不覆盖范围
+**范围外（除非明确要求）：**
 
-以下内容当前不在本 UVM block-level 计划范围内：
+- 形式验证。
+- STA 和门级时序仿真。
+- 功耗、DFT、CDC sign-off、FPGA 原型验证和固件协同仿真。
 
-- SoC-level integration、cache coherency、系统地址映射以外的全芯片互连行为。
-- 真实 DDR/NoC latency 模型和 QoS/arbiter 系统级性能验证。
-- clock-domain crossing、低功耗 UPF、电源状态切换。
-- gate-level simulation、SDF timing、STA signoff。
-- 形式验证和 CDC/RDC 专项 signoff。
-- 大规模性能 benchmark 的吞吐率签核；当前 performance profile 只作为功能压力配置。
-- 未在 DUT 中实现的多 master、多 outstanding 深度协议组合；当前环境配置为 1 个 AXI-Lite master、1 个 AXI memory slave，base profile outstanding=1，performance profile outstanding=2。
+### 1.3 参考文档
 
-## 2. Feature List and Verification Mapping
+| 编号 | 文档 | 描述 |
+| ---- | ---- | ---- |
+| R1 | `rtl/SPEC_EN.md` | 当前 RTL 设计规范和 ABI 事实 |
+| R2 | `rtl/SPEC_CN.md` | 中文 RTL 设计规范 |
+| R3 | `rtl/top_level_system_diagram.md` | 架构文字框图及子系统划分 |
+| R4 | `rtl/performance_optimization_plan.md` | 性能优化计划及实现说明 |
+| R5 | `tb/doc/bug_log.md` | Bug 跟踪日志 |
+| R6 | `script/filelist.f` | RTL/TB 编译文件列表 |
+| R7 | `Makefile` | 回归、编译、运行、覆盖率和合并目标 |
 
-| Feature ID | 功能点 | 验证目标 | 优先级 | 验证方法 | 对应用例 ID |
-|---|---|---|---|---|---|
-| F001 | AXI-Lite register reset/read/write | 确认 reset default、RW register 回读、reserved bit mask、STATUS/ERROR_CODE 初值正确 | P0 | Directed register sequence + RAL check | TC001 |
-| F002 | RO register 保护 | 确认 STATUS、IRQ_STATUS、ERROR_CODE 等只读或受控清除寄存器不能被普通写破坏 | P0 | Directed RAL write/readback | TC002 |
-| F003 | 基础 INT8 matmul | 确认 4x4 INT8 A*B 结果写回 C memory 正确 | P0 | Directed data pattern + memory compare | TC003 |
-| F004 | 基础 INT16 matmul | 确认 4x4 INT16 A*B 计算、符号扩展和写回正确 | P0 | Directed data pattern + memory compare | TC004 |
-| F005 | 大尺寸/tiling | 覆盖 8x8、16x16、32x32、64x64 下 load/compute/store 多 tile 调度 | P0 | Directed size sweep + timeout/done check | TC005, TC006, TC007, TC008 |
-| F006 | 矩形和非对齐尺寸 | 覆盖 M/N/K 不相等、非 4 对齐、尾 tile 和 mask 行为 | P0 | Directed matrix shape sweep + memory compare | TC009, TC010 |
-| F007 | 退化维度 | 覆盖 M/N/K 为 1 的边界矩阵，确认最小维度不误报 error | P1 | Directed edge dimension | TC011 |
-| F008 | back-to-back operation | 连续启动多次 operation 时状态清除、配置更新和结果独立性正确 | P0 | Directed repeated start/clear | TC012 |
-| F009 | precision 切换 | 连续 operation 在 INT8/INT16 间切换，确认配置不会串扰 | P0 | Directed back-to-back precision switch | TC013 |
-| F010 | bias post-op | 确认 bias 读取、按列加 bias、C 结果正确 | P0 | Directed bias preload + golden compare | TC014 |
-| F011 | ReLU post-op | 确认负数结果被 clamp 到 0，非负结果保持 | P0 | Directed signed pattern + golden compare | TC015 |
-| F012 | bias + ReLU 顺序 | 确认先加 bias 后执行 ReLU | P0 | Directed post-op ordering check | TC016 |
-| F013 | saturation/overflow | 覆盖 SAT_WRAP 和 SAT_SATURATE，确认 C 结果、overflow_seen 状态正确 | P0 | Directed overflow data + STATUS check | TC017, TC018 |
-| F014 | DMA burst_len | 覆盖合法 burst_len 配置、burst_len=0、burst_len 超限处理 | P1 | Directed DMA_CFG + AXI ARLEN monitor | TC019, TC036, TC037 |
-| F015 | AXI ready delay/backpressure | 确认 AXI slave ready delay 下 DUT 能完成读写且结果正确 | P1 | SVT AXI slave sequence delay injection | TC020 |
-| F016 | 非对齐 C base 写回 | 覆盖写回地址非自然对齐场景，确认 byte lane 和 C 数据正确 | P1 | Directed unaligned writeback + memory compare | TC021 |
-| F017 | IRQ 正常完成 | irq_en 下 operation done 后 STATUS.irq 和外部 irq pin 正确，clear 后撤销 | P0 | Directed IRQ check | TC022 |
-| F018 | 非法矩阵尺寸 | M/N/K 为 0 或超过 MAX_DIM 时必须进入 error，ERROR_CODE 正确 | P0 | Negative directed | TC023 |
-| F019 | 非法 precision | 非 INT8/INT16 precision 编码必须报 ERR_ILLEGAL_PRECISION | P0 | Negative directed | TC024 |
-| F020 | base address 未对齐 | A/B/C/bias base address 未对齐时必须报 ERR_UNALIGNED_BASE_ADDR | P0 | Negative directed | TC025 |
-| F022 | AXI read error | AXI read SLVERR、bias read error 必须报 ERR_AXI_READ_ERROR | P0 | SVT AXI slave error injection | TC029, TC030 |
-| F023 | AXI write error | AXI write SLVERR、中途写错误必须报 ERR_AXI_WRITE_ERROR | P0 | SVT AXI slave error injection | TC031, TC032 |
-| F024 | command 状态机非法 start | busy 或 done 未清除时再次 start，必须报 command error 且状态符合预期 | P0 | Directed command hazard | TC033, TC034 |
-| F025 | 4KB boundary | 读 DMA 自动拆分跨 4KB 请求，AXI AR burst 不跨 4KB boundary | P1 | AR protocol monitor | Random/traffic coverage |
-| F026 | internal timeout | AXI read 长时间无响应时进入 ERR_INTERNAL_TIMEOUT，不误判 done | P0 | Force rvalid low + monitor | TC038 |
-| F027 | reset/soft reset | soft reset 和 load/compute/store 阶段 reset 后状态、错误码、IRQ、活跃信号恢复正确 | P0 | Directed reset injection + recovery operation | TC039, TC040, TC041, TC042, TC043 |
-| F028 | error clear recovery | error clear 后可重新执行合法 operation 且结果正确 | P0 | Negative + clear + positive recovery | TC044 |
-| F029 | constrained random 合法空间 | 随机组合 M/N/K、precision、post-op、sat_mode、burst_len、base，提升交叉覆盖 | P1 | Constrained random multi-seed | TC045 |
-| F030 | corner data random | 覆盖极值、负数、零、溢出倾向数据组合 | P1 | Constrained random corner operand | TC046 |
-| F031 | max stress random | 覆盖高维度和复杂配置压力组合 | P1 | Constrained random stress + multi-seed | TC047 |
+## 2. DUT 概述
 
-## 3. Testcase List
+### 2.1 DUT 功能概述
 
-| Testcase ID | 测试名称 | 测试目的 | 激励方式 | 检查点 | 覆盖 feature |
-|---|---|---|---|---|---|
-| TC001 | `tensor_base_reg_rw_test` | 验证寄存器 reset、读写和 reserved bit 行为 | RAL read/write directed sequence | register readback、STATUS/ERROR_CODE 初值 | F001 |
-| TC002 | `tensor_base_ro_reg_protection_test` | 验证只读/状态寄存器保护 | RAL 强制写保护寄存器 | 写后状态不被非法修改 | F002 |
-| TC003 | `tensor_base_int8_4x4_test` | 验证基本 INT8 4x4 matmul | 固定 pattern 预加载 A/B | STATUS.done、ERROR_CODE=0、C memory compare | F003 |
-| TC004 | `tensor_base_int16_4x4_test` | 验证基本 INT16 4x4 matmul | 固定 INT16 pattern 预加载 A/B | C memory compare、符号结果正确 | F004 |
-| TC005 | `tensor_base_8x8_test` | 验证 8x8 方阵 | directed matrix size | done/no error、C memory compare | F005 |
-| TC006 | `tensor_base_16x16_test` | 验证 16x16 方阵和多 tile | directed matrix size | done/no error、C memory compare | F005 |
-| TC007 | `tensor_base_32x32_test` | 验证 32x32 方阵压力 | directed matrix size | timeout 内完成、C memory compare | F005 |
-| TC008 | `tensor_base_64x64_test` | 验证最大维度 64x64 | directed max dimension | timeout 内完成、C memory compare | F005 |
-| TC009 | `tensor_base_rect_matrix_test` | 验证矩形矩阵 | directed M/N/K 不相等 | C memory compare | F006 |
-| TC010 | `tensor_base_non_aligned_size_test` | 验证非 4 对齐尺寸和尾 tile | directed non-aligned dimensions | 尾部结果正确、无越界 error | F006 |
-| TC011 | `tensor_base_degenerate_dims_test` | 验证 M/N/K 为 1 的边界尺寸 | directed degenerate dimensions | done/no error、C memory compare | F007 |
-| TC012 | `tensor_base_back_to_back_test` | 验证连续 operation | 多次 program/start/wait/clear | 每次结果独立、状态正确清除 | F008 |
-| TC013 | `tensor_base_bb_precision_switch_test` | 验证连续 operation precision 切换 | back-to-back INT8/INT16 配置 | 两种 precision 结果均正确 | F009 |
-| TC014 | `tensor_base_bias_test` | 验证 bias post-op | 预加载 bias vector | C=A*B+bias | F010 |
-| TC015 | `tensor_base_relu_test` | 验证 ReLU post-op | 构造含负数结果的数据 | 负值输出为 0，非负值保持 | F011 |
-| TC016 | `tensor_base_bias_relu_order_test` | 验证 bias + ReLU 顺序 | bias + signed operand directed | 先 bias 后 ReLU 的 golden compare | F012 |
-| TC017 | `tensor_base_saturation_test` | 验证 saturation 结果 | 溢出倾向数据，SAT_WRAP/SAT_SATURATE 对比 | wrap/saturate 结果、STATUS.overflow_seen | F013 |
-| TC018 | `tensor_base_overflow_status_test` | 验证 overflow status | 构造 overflow 场景 | STATUS.overflow_seen 置位和清除行为 | F013 |
-| TC019 | `tensor_base_burst_len_test` | 验证合法 burst_len | 配置 1/4/8/16 等 burst_len | operation 完成、AXI burst 行为合理 | F014 |
-| TC020 | `tensor_base_axi_ready_delay_test` | 验证 AXI ready delay | 自定义 SVT AXI slave memory sequence 注入 ready delay | done/no error、C memory compare | F015 |
-| TC021 | `tensor_base_write_unaligned_test` | 验证非对齐写回 | C base 非对齐配置 | byte lane/写回数据正确 | F016 |
-| TC022 | `tensor_base_irq_test` | 验证正常完成 IRQ | irq_en operation | STATUS.irq、外部 irq pin、clear irq | F017 |
-| TC023 | `tensor_err_illegal_matrix_size_test` | 验证非法矩阵尺寸 | M/N/K 为 0 或越界 | STATUS.error、ERR_ILLEGAL_MATRIX_SIZE | F018 |
-| TC024 | `tensor_err_illegal_precision_test` | 验证非法 precision | 写非法 precision 编码 | STATUS.error、ERR_ILLEGAL_PRECISION | F019 |
-| TC025 | `tensor_err_unaligned_base_test` | 验证 base address 未对齐 | A/B/C/bias base 低位非 0 | STATUS.error、ERR_UNALIGNED_BASE_ADDR | F020 |
-| TC026 | `tensor_err_axi_read_slverr_test` | 验证 AXI read SLVERR | SVT AXI slave 注入 read SLVERR | STATUS.error、ERR_AXI_READ_ERROR | F022 |
-| TC027 | `tensor_err_axi_read_bias_error_test` | 验证 bias read error | bias 读取阶段注入 read error | STATUS.error、ERR_AXI_READ_ERROR | F022 |
-| TC028 | `tensor_err_axi_write_slverr_test` | 验证 AXI write SLVERR | SVT AXI slave 注入 write SLVERR | STATUS.error、ERR_AXI_WRITE_ERROR | F023 |
-| TC029 | `tensor_err_axi_write_mid_row_error_test` | 验证写回中途错误 | C 写回过程中注入 error | STATUS.error、ERR_AXI_WRITE_ERROR | F023 |
-| TC030 | `tensor_err_command_while_busy_test` | 验证 busy 期间重复 start | operation busy 后再次写 START | STATUS.error、ERR_COMMAND_WHILE_BUSY | F024 |
-| TC031 | `tensor_err_start_while_done_test` | 验证 done 未清除时重复 start | operation done 后不 clear 再 start | done 保持、error 置位、ERROR_CODE 正确 | F024 |
-| TC033 | `tensor_err_burst_len_zero_test` | 验证 burst_len=0 | DMA_CFG burst_len 写 0 | 不正常 done，进入 error 或 timeout 检查 | F014 |
-| TC034 | `tensor_err_burst_len_exceed_test` | 验证 burst_len 超限 | performance/超限 burst_len 配置 | AXI ARLEN 不超过允许值或报错 | F014 |
-| TC035 | `tensor_err_internal_timeout_test` | 验证 internal timeout | 强制 AXI RVALID 低 | STATUS.error、ERR_INTERNAL_TIMEOUT、无 done | F026 |
-| TC036 | `tensor_reset_during_load_test` | 验证 load 阶段 reset | load_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
-| TC037 | `tensor_reset_during_compute_test` | 验证 compute 阶段 reset | compute_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
-| TC038 | `tensor_reset_during_store_test` | 验证 store 阶段 reset | store_active 时 apply_reset | 状态恢复、后续 operation 可正常执行 | F027 |
-| TC039 | `tensor_soft_reset_test` | 验证 busy 期间 soft reset | operation busy 后写 soft_reset | STATUS 清零、ERROR_CODE 清零、恢复 operation | F027 |
-| TC040 | `tensor_soft_reset_during_idle_test` | 验证 idle soft reset | idle 状态写 soft_reset | 无误报 error，寄存器状态合理 | F027 |
-| TC041 | `tensor_err_clear_error_recovery_test` | 验证 clear error 后恢复 | 先触发 error，再 clear，再执行合法 operation | error/irq 清除，合法 operation pass | F028 |
-| TC042 | `tensor_base_random_legal_test` | 验证合法随机配置空间 | constrained random，regression 中多 seed、多 iteration | done/no error、C memory compare、coverage sample | F029 |
-| TC043 | `tensor_base_random_corner_data_test` | 验证 corner data | 随机极值/零/负值/溢出倾向 operand | golden compare、overflow/saturation 行为 | F030 |
-| TC044 | `tensor_base_random_max_stress_test` | 验证高压力随机场景 | 大尺寸和复杂 post-op/sat 随机 | timeout 内完成、C memory compare | F031 |
+`tensor_accel_top` 是一个单时钟整数矩阵乘法加速器。软件通过 AXI-Lite 配置矩阵维度、精度、后处理模式、基地址和 DMA burst 长度。DUT 通过 AXI4 read DMA 加载 A/B/Bias，用 4×4 脉动阵列分 tile 计算矩阵乘加，执行后处理，并通过 AXI4 write DMA 写出 row-major INT32 C 结果。
 
-## 4. Checking Strategy
+**主要功能：**
 
-### 4.1 Reference Model
+- AXI-Lite 寄存器接口用于配置、状态、IRQ、overflow 和错误码访问。
+- 带内部 descriptor FIFO 的 AXI4 master 读写 DMA。
+- 固定内部 SPAD 区域规划：A0/A1/B/Bias。
+- 基于 M/N 的 tile 化计算，每 tile 全 K 迭代，无 K-tile 部分累加。
+- 有符号 INT4/INT8/INT16 输入，40-bit 内部累加，INT32 输出。
+- C store coalescing，固定 `C_STORE_NBLOCK=2`。
 
-当前环境包含 `tensor_accel_ref_model`，其预测逻辑以 `tensor_accel_matrix_item` 为输入，执行 signed matrix multiply，并根据 `post_op` 执行 bias 和 ReLU。现有主要 directed/random sequence 还在 sequence 内部实现了 golden 计算和 memory compare：
+**关键特征：**
 
-- `tensor_matmul_vseq` 负责生成 A/B pattern、预加载外部 memory、计算 golden C、读取实际 C 并逐元素比较。
-- `tensor_bias_vseq` 和 random vseq 在 golden 中加入 bias、ReLU、saturation/wrap 行为。
-- 后续建议将 sequence 内 golden compare 收敛到统一 `reference model + analysis port + scoreboard` 流程，减少重复 golden 逻辑。
+| 项目 | 值 |
+| ---- | ---- |
+| 时钟域 | 单 `clk` |
+| 复位 | 低有效异步 `rst_n`；软件 `soft_reset` 脉冲 |
+| AXI-Lite | 32-bit data, 16-bit address |
+| AXI4 Master | 64-bit data, 32-bit address, fixed ID 0, INCR bursts |
+| 默认阵列 | 4×4 |
+| 最大维度 | `MAX_DIM=64` |
+| 输出格式 | INT32 row-major C |
+| B 布局 | 软件预转置/预打包的输出列条带 |
+| C 写回 | Row-mode 多行写；相邻 N tile 两两合并 (N-block) |
 
-### 4.2 Scoreboard
-
-`tensor_accel_scoreboard` 继承 `uvm_subscriber #(tensor_accel_matrix_item)`，核心检查方式为：
-
-- 检查 `expected_c.size()` 与 `actual_c.size()` 一致。
-- 对 `expected_c[idx]` 和 `actual_c[idx]` 逐元素四态比较。
-- 记录 `compare_count` 和 `mismatch_count`，并通过 `cfg.add_scb_check_count()` / `cfg.add_scb_check_error()` 汇总检查结果。
-
-当前已实现 scoreboard 组件，但实际主路径测试更多通过 vseq 内部 compare 完成。计划目标是将所有 matmul 类用例补齐 transaction 发布路径，使 scoreboard 成为统一数据结果检查点。
-
-### 4.3 Assertion
-
-当前 regression 已开启 `-cm line+cond+fsm+branch+tgl+assert`。DUT 内部固定 scratchpad 地址规划、descriptor FIFO 基本行为和 store row buffer 边界通过 assertion 检查，协议类 assertion 主要来自 VIP 侧。建议继续补充以下 assertion：
-
-- AXI-Lite：valid/ready 握手后 response 必须返回，读写 response 不为 X。
-- AXI4 read/write：burst 内 `len/size/last` 一致，禁止跨 4KB burst，`VALID` 保持直到 `READY`。
-- command_fsm：busy/done/error 状态互斥关系，非法 start 必须进入 error。
-- reset/soft reset：reset 后 busy/load/compute/store/irq/error 清零。
-- register：RO register 普通写不改变状态，clear pulse 只影响对应 sticky bit。
-- scratchpad 固定规划：内部 A0/A1/B/bias window 不重叠、不越界。
-- store/writeback：post-process row index、store row buffer read/write index、write descriptor row_count 不越界。
-- config freeze：start 被接受后，operation 执行期使用 frozen config，mid-flight 软件写配置不影响当前 operation。
-
-### 4.4 Monitor
-
-当前 monitor 主要由 Synopsys SVT AXI VIP 提供：
-
-- AXI-Lite master monitor 连接到 `uvm_reg_predictor`，用于 RAL mirror/predict。
-- AXI slave monitor/sequence 支持 memory model、ready delay、SLVERR 注入。
-- 个别异常 vseq 直接监控 DUT/接口信号，例如 ARLEN、AR burst 是否跨 4KB、RVALID 是否被压低、`load_active/compute_active/store_active` 阶段 reset。
-
-计划目标：
-
-- 保持 SVT AXI monitor 作为协议与 transaction 观测基础。
-- 增加 tensor-level monitor，将 program/start/done/error/C writeback 汇聚为 `tensor_accel_matrix_item`。
-- 将 monitor 采集到的 transaction 同时送入 coverage 和 scoreboard，减少 vseq 对内部信号和 memory backdoor 的直接依赖。
-
-## 5. Coverage Plan
-
-### 5.1 功能覆盖率
-
-当前 `tensor_accel_coverage` 已定义以下 coverpoint：
-
-- `cp_m/cp_n/cp_k`：覆盖 1、小尺寸 2-15、中尺寸 16-32、最大 64。
-- `cp_precision`：覆盖 `PREC_INT8`、`PREC_INT16`。
-- `cp_post_op`：覆盖 `POST_NONE`、`POST_BIAS`、`POST_RELU`、`POST_BIAS_RELU`。
-- `cp_sat_mode`：覆盖 `SAT_WRAP`、`SAT_SATURATE`。
-- `cp_burst_len`：覆盖 1/4/8/16 和 17-256 performance 区间。
-- `cp_overflow`：覆盖 overflow 未发生/发生。
-- `cp_error`：覆盖正常完成/错误完成。
-- `x_precision_post_op`：覆盖 precision 与 post_op 交叉。
-
-功能覆盖目标：
-
-- P0 feature 对应 coverpoint 和 testcase 全部命中。
-- `precision x post_op` 交叉覆盖达到 100%。
-- M/N/K 的 min、small、medium、max bins 均至少命中一次。
-- `sat_mode` 两个 bins 均命中，且 overflow seen 至少命中 wrap 和 saturate 场景。
-- error 类 testcase 覆盖所有 `error_code_e` 非零枚举。
-- random regression 至少运行 3 个 seed，每个 random test 至少 5 次 iteration；收敛阶段根据 coverage hole 增加 seed 或 directed case。
-
-待补功能覆盖项：
-
-- `error_code` coverpoint 与 `error_code x irq_en` 交叉。
-- `reset_phase` coverpoint：idle/load/compute/store。
-- `axi_resp` coverpoint：OKAY/SLVERR for read/write。
-- `unaligned_base`、`command_hazard` 独立 coverpoint；4KB split 由 AR boundary protocol coverage 统计。
-
-### 5.2 代码覆盖率
-
-regression 脚本当前默认 `COV=1`，仿真命令开启：
+### 2.2 DUT 结构框图
 
 ```text
--cm line+cond+fsm+branch+tgl+assert
++--------------------------------------------------------------------------+
+|                             tensor_accel_top                              |
+|                                                                          |
+| AXI-Lite -> axi_lite_slave -> reg_file -> cfg_active/status/error/irq     |
+|                                                                          |
+| command_fsm -> tile_count_fsm -> buffer_manager_fsm                       |
+|      |             |                 |                                    |
+|      |             |                 +-> 固定 SPAD 基址 A0/A1/B/Bias     |
+|      |             |                                                      |
+|      +-> load_scheduler -> read_desc_fifo -> tensor_loader -> axi_read_dma |
+|      |                                      |                             |
+|      |                                      v                             |
+|      |                          scratchpad_ctrl -> scratchpad             |
+|      |                                      |                             |
+|      +-> compute_fsm -> wavefront_feeder -> systolic_array -> accumulator |
+|      |                                      |                             |
+|      +-> post_process_fsm -> post_process -> c_store_coalescer            |
+|                                             |                             |
+|                                             v                             |
+|      +-> store_fsm -> write_desc_fifo -> tensor_writer -> axi_write_dma   |
+|                                                                          |
++--------------------------------------------------------------------------+
 ```
 
-代码覆盖目标：
+**模块说明：**
 
-- Block-level merged line coverage >= 90%。
-- Branch/condition coverage >= 85%，未覆盖分支需要分类为不可达、异常分支待测或真实 coverage hole。
-- FSM coverage >= 90%，command_fsm、load_scheduler、tile_count_fsm、buffer_manager_fsm、store_fsm、DMA FSM 的主要状态和状态跳转必须覆盖。
-- Toggle coverage 作为辅助指标，目标 >= 80%；对常量 tie-off、参数裁剪、未使用高位信号允许 waiver。
-- 覆盖报告输出目录为 `tb/sim/sim/merged_cov_report`，覆盖数据库为 `tb/sim/sim/merged_cov.vdb`。
+| 模块 | 功能 |
+| ---- | ---- |
+| `axi_lite_slave` | AXI-Lite 握手及寄存器访问转换 |
+| `reg_file` | 寄存器映射、脉冲生成、IRQ 使能、状态回读、配置存储 |
+| `region_checker` | 矩阵尺寸、精度和基地址对齐检查 |
+| `command_fsm` | 顶层命令排序、状态、IRQ、超时和错误锁存 |
+| `tile_count_fsm` | `tile_m/tile_n`、行列有效掩码、C 外部偏移 |
+| `buffer_manager_fsm` | A 乒乓选择、B/Bias 固定基址、预取冲突检查 |
+| `load_scheduler` | A/B/Bias descriptor 生成和挂起读 drain 跟踪 |
+| `dma_descriptor_fifo` | 顺序读写 descriptor 缓冲 |
+| `tensor_loader` | 行模式读调度、对齐调整、SPAD 写 |
+| `tensor_writer` | 行模式写调度、row-ready 门控、SPAD/coalescer 读 |
+| `axi_read_dma` | AXI AR/R burst 引擎，可选读 4KB split |
+| `axi_write_dma` | AXI AW/W/B burst 引擎，含写错误和 4KB crossing 上报 |
+| `wavefront_feeder` | 脉动阵列的偏斜 A/B 注入 |
+| `systolic_array` | PE 阵列，带符号乘累加和传播 |
+| `accumulator` | 捕获脉动阵列结果供后处理 |
+| `post_process` | Bias、ReLU、wrap/saturate、overflow 生成 |
+| `c_store_coalescer` | 以 M tile 和 N-block slot 索引的 C 行缓存 |
 
-### 5.3 断言覆盖目标
+### 2.3 DUT 接口列表
 
-当前 DUT 专用 assertion 尚未系统化落地，因此断言覆盖分两阶段：
+| 接口 | 方向 | 位宽 | 描述 |
+| ---- | ---- | ---: | ---- |
+| `clk` | input | 1 | 单时钟 |
+| `rst_n` | input | 1 | 低有效异步复位 |
+| `s_axil_*` | mixed | 32-bit data / 16-bit addr | AXI-Lite 寄存器接口 |
+| `m_axi_ar*`、`m_axi_r*` | mixed | 64-bit data / 32-bit addr | AXI4 读 master |
+| `m_axi_aw*`、`m_axi_w*`、`m_axi_b*` | mixed | 64-bit data / 32-bit addr | AXI4 写 master |
+| `irq` | output | 1 | 电平风格 completion/error 中断 |
 
-- 阶段 1：保持仿真 `assert` coverage 打开，确认 VIP/仿真器层面无 assertion failure。
-- 阶段 2：补充 DUT SVA 后，目标为所有 P0 assertion 至少触发 pass 一次，关键错误场景 assertion cover property 至少命中一次。
+`ifndef SYNTHESIS` 下的仿真专用端口用于 command FSM error-arc 注入，不属于可综合接口约定。
 
-建议断言覆盖目标：
+## 3. 验证目标
 
-- AXI handshake assertion pass coverage：100%。
-- command_fsm 状态互斥与非法 start assertion pass coverage：100%。
-- reset/soft reset 清零 assertion pass coverage：100%。
-- 4KB boundary、burst_len 限制、固定 scratchpad 地址规划 assertion pass coverage：100%。
-- 所有 assertion failure 均作为 P0/P1 bug 记录到 `tb/doc/bug_log.md`，除非已证明为 testbench 配置问题。
+### 3.1 功能正确性
 
-## 6. Regression Plan
+| 编号 | 目标 | 描述 |
+| ---- | ---- | ---- |
+| FC-01 | CSR 行为 | 验证复位值、RW/RO/W1C/pulse 语义、字节使能、无暴露的 SPAD offset/size 寄存器 |
+| FC-02 | 矩阵数据通路 | 验证 INT4/INT8/INT16 下方阵、矩形、非对齐和退化合法维度的矩阵乘加 |
+| FC-03 | 后处理 | 验证 bias、ReLU、bias+ReLU、wrap、saturation、overflow_seen 和 OVF_COUNT |
+| FC-04 | 外部数据布局 | 验证 A row-major packed 布局，B 预转置条带布局，Bias 向量布局，row-major C 输出 |
+| FC-05 | C store coalescing | 验证 `C_STORE_NBLOCK=2` 缓存、N-block 尾部处理、row_bytes 计算和 row-major 正确性 |
+| FC-06 | 缓冲管理 | 验证 A 乒乓、B/Bias 在 `tile_m==0` 时复用、无 load/compute/store 冲突 |
+| FC-07 | DMA descriptor | 验证 descriptor FIFO 顺序、行模式 descriptor、split/read 行为和写 descriptor 生成 |
+| FC-08 | 错误行为 | 验证所有定义的错误码、锁存、清除行为及支持的恢复 |
+| FC-09 | IRQ/状态 | 验证 done/error IRQ 的置位、保持、清除及 IRQ 使能行为 |
+| FC-10 | 复位 | 验证冷复位、软复位及活跃 load/compute/store 中的复位 |
 
-当前 `tb/sim/run_regression.sh` regression 组织方式：
+### 3.2 协议正确性
 
-- Directed tests：23 个 testcase，seed=`SEED`。
-- Exception tests：23 个 testcase，seed=`SEED`。
-- Random tests：3 个 testcase，每个运行 `SEED`、`SEED+1`、`SEED+2`，并传入 `+RAND_ITERS=5`。
-- 默认执行 coverage merge，生成 merged coverage database 和 HTML report。
+| 编号 | 目标 | 描述 |
+| ---- | ---- | ---- |
+| PC-01 | AXI-Lite | 验证 AW/W/B 和 AR/R 握手、读延迟、字节使能合并和响应稳定性 |
+| PC-02 | AXI read | 验证 AR/R 顺序、RLAST 处理、RRESP 错误检测和背压下无数据丢失 |
+| PC-03 | AXI write | 验证 AW/W/B 顺序、WSTRB 正确性、WLAST、BRESP 错误检测和行模式排序 |
+| PC-04 | 内部 valid/ready | 验证 descriptor FIFO push/pop、loader/writer busy/done/error 和 store row-ready/read 安全 |
+| PC-05 | 顺序执行 | 验证命令、descriptor、tile 和 C 写回严格保持 in-order |
 
-建议 signoff 顺序：
+### 3.3 边界条件
 
-1. 每次 RTL 修改后运行受影响 directed/exception testcase。
-2. 每日或阶段性运行完整 regression。
-3. 完整 regression 通过后分析 merged coverage，针对 hole 增补 directed test 或 random constraint。
-4. 所有 P0 feature testcase pass，功能覆盖和代码覆盖达到目标后进入 block-level verification signoff。
+| 编号 | 目标 | 描述 |
+| ---- | ---- | ---- |
+| BC-01 | 最小合法维度 | `M/N/K=1` 及窄矩形形状 |
+| BC-02 | 最大合法维度 | `M/N/K=64`，含随机合法最大压力种子 |
+| BC-03 | Tile 尾部 | 非整倍 `M/N` 尺寸及 N-block 尾部 coalescing |
+| BC-04 | 精度打包 | INT4 奇/偶 K nibble 打包、INT8 字节打包、INT16 lane strobe |
+| BC-05 | Burst 边界 | Burst 长度最小/最大/零/超限及读写 4KB 边界行为 |
+| BC-06 | FIFO 边界 | 读写 descriptor FIFO 空/满保护和顺序 |
+| BC-07 | 状态边界 | busy/done/error 时 start、clear_done、clear_error、clear_irq、soft_reset |
+
+### 3.4 鲁棒性
+
+| 编号 | 目标 | 描述 |
+| ---- | ---- | ---- |
+| RB-01 | 连续命令 | 验证重复命令不泄漏状态 |
+| RB-02 | 精度切换 | 验证 INT4/INT8/INT16 连续切换 |
+| RB-03 | 随机合法配置 | 验证跨种子随机化合法矩阵形状和模式 |
+| RB-04 | AXI 错误注入 | 在定向阶段注入读写错误 |
+| RB-05 | Command FSM error arc | 使用仿真专用 force 端口触发难以覆盖的错误弧 |
+| RB-06 | 操作中复位 | 在 load、compute、store 和 idle 中复位 |
+| RB-07 | 长期稳定性 | 全回归：定向 + 异常 + 随机 + 覆盖率 |
+
+## 4. 验证范围
+
+### 4.1 范围内
+
+| 编号 | 范围项 | 描述 |
+| ---- | ------ | ---- |
+| IS-01 | 定向基础测试 | 基础 INT4/INT8/INT16、8×8 通路、矩形、非对齐、退化、bias、ReLU、saturation |
+| IS-02 | 异常测试 | 非法尺寸/精度/基址、AXI 读写错误、命令冲突、超时、IRQ on error |
+| IS-03 | 随机测试 | 合法随机、corner-data 随机、max-stress 随机 |
+| IS-04 | 覆盖率收敛 | 功能、分支、行、条件、翻转、FSM、断言覆盖率及 waiver |
+| IS-05 | 寄存器验证 | CSR 读写/复位/RO/W1C/pulse 行为 |
+| IS-06 | 数据完整性 | 端到端 scoreboard 与软件参考模型比对 |
+| IS-07 | 性能观测 | TB 侧性能 monitor 观测延迟/阻塞/吞吐 |
+| IS-08 | 断言 | `ASSERT_ON` 下可综合 RTL 断言 + TB/协议检查 |
+
+### 4.2 范围外
+
+| 编号 | 范围项 | 理由 |
+| ---- | ------ | ---- |
+| OS-01 | 形式验证 | 仅在明确要求时运行 |
+| OS-02 | STA / 门级时序 | 物理时序收敛不在本 RTL 仿真计划内 |
+| OS-03 | 软件驱动协同仿真 | 软件行为以寄存器和存储事务建模 |
+| OS-04 | Tile-major C ABI | 当前 SPEC 要求 row-major C |
+| OS-05 | 完整 B 片上转置引擎 | 当前 B ABI 为软件预转置/预打包 |
+| OS-06 | 任意阵列尺寸参数签核 | 默认验证针对当前 4×4 配置；8×8 为后续阶段 |
+
+## 5. 验证策略
+
+### 5.1 验证层级
+
+| 层级 | 范围 | 方法 | 目标 |
+| ---- | ---- | ---- | ---- |
+| L1 模块 | 集成 TB 环境中的叶级和控制器模块 | 定向测试 + 断言 | 通过顶层测试暴露的协议和基本行为 |
+| L2 子系统 | Load/compute/store/DMA/寄存器子系统 | 定向 + 错误注入 | 验证子系统排序和恢复 |
+| L3 端到端 | 完整 `tensor_accel_top` | Scoreboard + 定向/随机 | 验证矩阵结果和可观察状态 |
+| L4 收敛 | 全回归 | 多种子随机 + 覆盖率合并 + waiver 评审 | 关闭覆盖率并稳定回归 |
+
+### 5.2 验证方法
+
+| 方法 | 应用层级 | 说明 |
+| ---- | -------- | ---- |
+| 定向测试 | L2/L3 | 目标和回归测试的主要工具 |
+| 约束随机测试 | L3/L4 | 合法矩阵/模式随机化 + scoreboard 检查 |
+| 错误注入 | L2/L3 | AXI response 错误、非法配置、命令冲突、超时、内部 force 钩子 |
+| Scoreboard | L3/L4 | 矩阵参考模型比较外部 C memory 内容 |
+| 功能覆盖率 | L3/L4 | Covergroup 在 `tb/env/tensor_accel_coverage.sv` |
+| 代码覆盖率 | L4 | VCS line/cond/fsm/branch/tgl/assert + `cov_waivers` |
+| 断言 | 全部 | RTL `ASSERT_ON` 和 TB 协议检查 |
+| 性能 monitor | L3/L4 | 仅 TB monitor；性能计数器不在 RTL 主路径中保留 |
+
+### 5.3 验证环境文件组织
+
+```text
+tb/
+├── tb/
+│   ├── top_tb.sv
+│   ├── tensor_accel_dut_if.sv
+│   └── tensor_accel_uvm_pkg.sv
+├── env/
+│   ├── tensor_accel_env.sv
+│   ├── tensor_accel_ref_model.sv
+│   ├── tensor_accel_scoreboard.sv
+│   ├── tensor_accel_coverage.sv
+│   └── tensor_perf_monitor.sv
+├── reg_model/
+│   └── tensor_accel_reg_pkg.sv
+├── seq_lib/
+│   ├── tensor_common_vseqs.sv
+│   ├── directed_tests/
+│   ├── exception_tests/
+│   └── random_tests/
+└── tests/
+    ├── base_test.sv
+    ├── directed_tests/
+    ├── exception_tests/
+    └── random_tests/
+```
+
+### 5.4 检查机制
+
+| 机制 | 检查内容 | 失败响应 |
+| ---- | -------- | -------- |
+| Scoreboard | 外部 C memory 结果与参考模型比对 | `uvm_error` / 测试失败 |
+| 寄存器模型/sequence | CSR 访问、清除行为、状态/错误 | `uvm_error` |
+| AXI VIP / monitor | AXI 协议、response 和 memory 行为 | VIP error 或 TB error |
+| RTL 断言 | FIFO 边界、store context、SPAD 窗口、coalescer 边界 | `ASSERT_ON` 时 `$fatal` |
+| 覆盖率模型 | 特性和跃迁覆盖率 | 覆盖率空洞分类 |
+| 性能 monitor | 延迟/阻塞/吞吐观测 | 报告和趋势，非 sign-off 阻碍（除非定义阈值） |
+
+## 6. 验证环境说明
+
+### 6.1 验证环境架构
+
+```text
++------------------------------------------------------------------------+
+| top_tb                                                                 |
+|  +--------------------+       +--------------------------------------+ |
+|  | tensor_accel_dut_if|<----->| tensor_accel_top                     | |
+|  +--------------------+       +--------------------------------------+ |
+|        ^                                  ^                            |
+|        |                                  | AXI4/AXI-Lite              |
+|  +--------------------+       +--------------------------------------+ |
+|  | tensor_accel_env   |<----->| Synopsys SVT AXI system environment  | |
+|  |  ref_model         |       +--------------------------------------+ |
+|  |  scoreboard        |                                              |
+|  |  coverage          |                                              |
+|  |  perf_monitor      |                                              |
+|  +--------------------+                                              |
++------------------------------------------------------------------------+
+```
+
+**VIP 信息：**
+
+| VIP | 版本 | 供应商 | 接口 | 说明 |
+| --- | ---- | ------ | ---- | ---- |
+| SVT AXI System VIP | 2018.09 | Synopsys | AXI-Lite 和 AXI4 memory system | 用于寄存器和 memory 事务 |
+
+### 6.2 Agent 划分
+
+| Agent/Component | 类型 | 功能 |
+| --------------- | ---- | ---- |
+| AXI system sequencer | Active VIP | 驱动寄存器、memory 和 slave response sequence |
+| `tensor_accel_env` | UVM env | 拥有参考模型、scoreboard、覆盖率和 perf monitor |
+| `tensor_accel_ref_model` | 预测器 | 计算已配置操作的期望 C 矩阵 |
+| `tensor_accel_scoreboard` | 比较器 | 比较期望和观测的 memory/结果行为 |
+| `tensor_accel_coverage` | Subscriber | 采样功能覆盖率 |
+| `tensor_perf_monitor` | Monitor | RTL 外部跟踪性能事件 |
+
+### 6.3 参考模型
+
+| 属性 | 描述 |
+| ---- | ---- |
+| 实现语言 | SystemVerilog |
+| 精度 | Transaction-level 功能模型 |
+| 支持特性 | INT4/INT8/INT16、row-major A、预转置 B 条带、Bias/ReLU/saturation/wrap、row-major C |
+| 输入来源 | 编程的测试配置和 memory 初始化 |
+| 输出目标 | Scoreboard 期望矩阵 |
+| 配置感知 | 使用与 DUT 测试相同的寄存器配置 |
+
+### 6.4 Scoreboard
+
+| 属性 | 描述 |
+| ---- | ---- |
+| 比较粒度 | 逐矩阵元素 / 逐测试事务 |
+| 输入来源 | 参考模型期望矩阵；DUT 完成后的实际 C memory 内容 |
+| 排序 | In-order 命令完成 |
+| 不匹配行为 | `uvm_error` 附不匹配详情 |
+| 超时处理 | 测试超时/watchdog 使测试失败 |
+| 丢拍/重复检测 | 由完整矩阵内容比较和完成状态覆盖 |
+
+## 7. Feature List / 验证项
+
+### 7.1 优先级定义
+
+| 优先级 | 含义 |
+| ------ | ---- |
+| P0 | 任何可用发布必须通过 |
+| P1 | 验证收敛必须通过 |
+| P2 | 重要压力/覆盖项，可通过 review waiver |
+| P3 | 可选探索项 |
+
+### 7.2 验证项表
+
+| Feature ID | 功能描述 | 目标 | 优先级 | 方法 | 覆盖率点 | 测试 |
+| ---------- | -------- | ---- | ------ | ---- | -------- | ---- |
+| F-REG | CSR 映射和语义 | Reset/RW/RO/W1C/pulse/IRQ 使能 | P0 | 定向 + RAL | CSR bins | reg, irq, ro protection |
+| F-INT8 | INT8 数据通路 | 正确矩阵乘加和 C 写回 | P0 | 定向 + 随机 | precision bins | 4×4, 8×8, random |
+| F-INT16 | INT16 数据通路 | 正确符号扩展和累加 | P0 | 定向 | precision bins | int16, max stress |
+| F-INT4 | INT4 数据通路 | 正确 nibble 解包、符号扩展、结果 | P0 | 定向 + 随机 | precision bins | int4, precision switch |
+| F-POST | 后处理 | Bias/ReLU/saturation/wrap/overflow | P0 | 定向 | post_op/sat bins | bias, relu, saturation |
+| F-SHAPE | 矩阵形状 | 矩形、尾部、退化合法维度 | P0 | 定向 + 随机 | shape bins | rect, non-aligned, degenerate |
+| F-BLAYOUT | B 预转置 ABI | 跨 M 的 B 条带读取和复用 | P0 | Scoreboard | B reuse bins | base/random |
+| F-CSTORE | C row-major 写回 | N-block coalescer 和行模式写 | P0 | 定向 + 覆盖 | store/coalescer bins | 8×8, rect, random |
+| F-DMA-R | 读 DMA | Descriptor FIFO、行模式、错误、可选 4KB split | P1 | 定向/错误 | read DMA bins | read slverr, burst |
+| F-DMA-W | 写 DMA | 行模式、WSTRB、BRESP 错误、4KB crossing 错误 | P1 | 定向/错误 | write DMA bins | write slverr, unaligned |
+| F-FSM | Command FSM | 正常、流水、done、error 弧 | P1 | 定向 + 错误注入 | FSM coverage | command error arc |
+| F-BUF | 缓冲管理 | A 乒乓、B/Bias 复用、冲突 | P1 | 定向/随机 | buffer bins | base/random/back-to-back |
+| F-RESET | 复位行为 | 冷复位、软复位、活跃复位 | P1 | 定向 | reset-state cross | reset tests |
+| F-IRQ | IRQ/状态 | Done/error IRQ、清除、状态位 | P1 | 定向 | IRQ bins | base_irq, irq_on_error |
+| F-RAND | 随机合法压力 | 合法随机化配置 | P2 | 随机 | config crosses | random legal/corner/max |
+| F-COV | 覆盖率收敛 | 覆盖率合并和 waiver 评审 | P1 | 回归 | code/functional coverage | full regression |
+
+## 8. 测试用例列表
+
+### 8.1 测试类型说明
+
+| 类型 | 描述 |
+| ---- | ---- |
+| 定向 | 手写单目标测试 |
+| 约束随机 | 随机合法/corner/stress 配置 |
+| 错误注入 | 非法配置、AXI 错误、命令冲突、force 钩子 |
+| 压力 | 多种子或最大尺寸稳定性/性能测试 |
+
+### 8.2 测试用例表
+
+| 用例 ID | 测试名称 | 类型 | 目标 Feature | 通过/失败标准 |
+| ------- | -------- | ---- | ------------ | ------------- |
+| TC-BASE-8X8 | `tensor_base_8x8_test` | 定向 | F-INT8, F-CSTORE, F-BUF | 测试完成，`UVM_ERROR=0`，C 与参考一致 |
+| TC-INT4 | `tensor_base_int4_4x4_test` | 定向 | F-INT4 | INT4 打包数据 C 与参考一致 |
+| TC-INT8 | `tensor_base_int8_4x4_test` | 定向 | F-INT8 | C 与参考一致 |
+| TC-INT16 | `tensor_base_int16_4x4_test` | 定向 | F-INT16 | C 与参考一致 |
+| TC-BURST | `tensor_base_burst_len_test` | 定向 | F-DMA-R, F-DMA-W | Burst 配置变体通过，无 mismatch |
+| TC-B2B | `tensor_base_back_to_back_test` | 定向 | F-BUF, F-FSM | 多次命令通过，无残留状态 |
+| TC-PREC-SW | `tensor_base_bb_precision_switch_test` | 定向 | F-INT4, F-INT8, F-INT16 | 连续精度切换通过 |
+| TC-IRQ | `tensor_base_irq_test` | 定向 | F-IRQ, F-REG | IRQ 按 SPEC 置位/清除 |
+| TC-RECT | `tensor_base_rect_matrix_test` | 定向 | F-SHAPE, F-CSTORE | 矩形输出与参考一致 |
+| TC-NONALIGNED | `tensor_base_non_aligned_size_test` | 定向 | F-SHAPE, F-CSTORE | M/N 尾部处理通过 |
+| TC-DEGEN | `tensor_base_degenerate_dims_test` | 定向 | F-SHAPE | 合法窄形状通过 |
+| TC-BIAS | `tensor_base_bias_test` | 定向 | F-POST | Bias 正确施加 |
+| TC-RELU | `tensor_base_relu_test` | 定向 | F-POST | ReLU 正确施加 |
+| TC-BIAS-RELU | `tensor_base_bias_relu_order_test` | 定向 | F-POST | Bias 先于 ReLU 施加 |
+| TC-SAT | `tensor_base_saturation_test` | 定向 | F-POST | Saturation/wrap 行为与模型一致 |
+| TC-OVERFLOW | `tensor_base_overflow_status_test` | 定向 | F-POST, F-IRQ | Overflow 状态/计数与期望一致 |
+| TC-AXI-READY | `tensor_base_axi_ready_delay_test` | 定向 | F-DMA-R, F-DMA-W | 背压不破坏数据 |
+| TC-RO | `tensor_base_ro_reg_protection_test` | 定向 | F-REG | RO 字段写入不改变 |
+| TC-WR-UNALIGN | `tensor_base_write_unaligned_test` | 定向 | F-DMA-W | 支持的 C 对齐行为与 SPEC 一致 |
+| TC-ERR-SIZE | `tensor_err_illegal_matrix_size_test` | 错误注入 | F-REG, F-FSM | `ERR_ILLEGAL_MATRIX_SIZE` 上报 |
+| TC-ERR-PREC | `tensor_err_illegal_precision_test` | 错误注入 | F-REG, F-FSM | `ERR_ILLEGAL_PRECISION` 上报 |
+| TC-ERR-BASE | `tensor_err_unaligned_base_test` | 错误注入 | F-REG, F-FSM | `ERR_UNALIGNED_BASE_ADDR` 上报 |
+| TC-ERR-RD | `tensor_err_axi_read_slverr_test` | 错误注入 | F-DMA-R | `ERR_AXI_READ_ERROR` 上报且可恢复 |
+| TC-ERR-WR | `tensor_err_axi_write_slverr_test` | 错误注入 | F-DMA-W | `ERR_AXI_WRITE_ERROR` 上报且可恢复 |
+| TC-ERR-CMD | `tensor_err_command_while_busy_test` | 错误注入 | F-FSM | `ERR_COMMAND_WHILE_BUSY` 上报 |
+| TC-ERR-DONE | `tensor_err_start_while_done_test` | 错误注入 | F-FSM | done/error 时 start 处理正确 |
+| TC-ERR-BURST | `tensor_err_burst_len_zero_test`、`tensor_err_burst_len_exceed_test` | 错误注入 | F-DMA-R/W | 非法 burst 行为与 SPEC/测试意图一致 |
+| TC-ERR-TIMEOUT | `tensor_err_internal_timeout_test` | 错误注入 | F-FSM | 超时错误上报 |
+| TC-ERR-ARC | `tensor_err_command_fsm_error_arc_test` | 错误注入 | F-FSM | 其余可达 error arc 命中 |
+| TC-RST-LOAD | `tensor_reset_during_load_test` | 定向 | F-RESET | 加载中复位可恢复 |
+| TC-RST-COMP | `tensor_reset_during_compute_test` | 定向 | F-RESET | 计算中复位可恢复 |
+| TC-RST-STORE | `tensor_reset_during_store_test` | 定向 | F-RESET | 存储中复位可恢复 |
+| TC-SOFT-RST | `tensor_soft_reset_test`、`tensor_soft_reset_during_idle_test` | 定向 | F-RESET | 软复位行为与 SPEC 一致 |
+| TC-RAND-LEGAL | `tensor_base_random_legal_test` | 约束随机 | F-RAND | 所有种子 scoreboard 和断言通过 |
+| TC-RAND-CORNER | `tensor_base_random_corner_data_test` | 约束随机 | F-RAND, F-POST | Corner data pattern 通过 |
+| TC-RAND-STRESS | `tensor_base_random_max_stress_test` | 压力 | F-RAND, F-BUF, F-CSTORE | 最大合法随机压力通过 |
+
+## 9. 覆盖率计划
+
+### 9.1 功能覆盖率
+
+| Covergroup / Area | 描述 | 采样位置 | 目标 |
+| ----------------- | ---- | -------- | ---: |
+| CSR coverage | 寄存器访问、复位、清除、错误/状态字段 | 寄存器事务 | 100% P0/P1 |
+| Precision coverage | INT4/INT8/INT16 | 测试配置 / 完成 | 100% |
+| Shape coverage | 方阵、矩形、尾部、退化、最大 | 测试配置 | 100% P0/P1 |
+| Post-op coverage | none/bias/ReLU/bias+ReLU × wrap/saturate | 测试配置 / 结果 | 100% |
+| DMA coverage | 读写 descriptor、行模式、burst len、错误 | DMA monitor/状态 | 100% P0/P1 |
+| C store coverage | `C_STORE_NBLOCK=2`、slot 0 缓存、slot 1 写、N-tail partial block | Store/coalescer 事件 | 100% |
+| Buffer coverage | A bank 选择、N 切换、B/Bias 复用 | 内部/TB monitor | 100% |
+| FSM coverage | Command FSM 状态和可达跃迁 | VCS FSM coverage | 100% 可达 |
+| Error coverage | 每种错误码和恢复路径 | Status/error monitor | 100% P0/P1 |
+| Reset coverage | idle/load/compute/store/done/error 中复位 | 复位测试 | 100% P1 |
+
+### 9.2 交叉覆盖率
+
+| 交叉 | 变量 | 目标 |
+| ---- | ---- | ---: |
+| Precision x Post-op | `precision` × `post_op` × `sat_mode` | 100% 有意义的合法组合 |
+| Shape x Precision | matrix shape class × precision | 100% P0/P1 |
+| C store x Shape | N-block slot/tail × tile_cols class | 100% |
+| Error x FSM state | error source × command state | 100% 可达，不可达为 waiver |
+| Reset x FSM state | reset type × active stage | 100% 定向状态 |
+| Burst x DMA path | burst_len bucket × read/write × row_mode | 100% P1 |
+
+### 9.3 代码覆盖率
+
+| 类型 | 目标 | 说明 |
+| ---- | ---: | ---- |
+| 行 | ≥ 95% | 允许审核过的 waiver |
+| 条件 | ≥ 90% | 不可达组合记录在案 |
+| FSM 状态 | 100% 可达状态 | Reset-only/不可达弧已审核 |
+| FSM 跃迁 | 100% 可达功能弧 | Error arc 已覆盖或 waiver |
+| 分支 | ≥ 90% | Default 已审核 |
+| 翻转 | ≥ 90% | 固定/仅测试/VIP/接口 waiver 允许 |
+| 断言 | 100% 通过 | 无未审核断言失败 |
+
+覆盖率排除存储在 `cov_waivers/`。已知的过滤范围包括 `axi_if`、`dut_if` 和 `uvm_custom_install_verdi_recording`。
+
+## 10. 断言计划
+
+### 10.1 严重级别定义
+
+| 级别 | 含义 |
+| ---- | ---- |
+| S0 Fatal | 数据损坏、非法 FIFO 访问、协议破坏、不可恢复状态 |
+| S1 Error | 功能正确性或错误处理违反 |
+| S2 Warning | 可疑条件需要审核 |
+| S3 Info | 调试/覆盖专用的观测 |
+
+### 10.2 断言列表
+
+| ID | 检查内容 | 级别 | 范围 |
+| -- | -------- | ---- | ---- |
+| AS-FIFO-01 | Descriptor FIFO push while full 非法 | S0 | 读写 descriptor FIFO |
+| AS-FIFO-02 | Descriptor FIFO pop while empty 非法 | S0 | 读写 descriptor FIFO |
+| AS-SPAD-01 | 固定 SPAD 窗口不重叠且适合实现的容量 | S0 | Buffer manager / region checker |
+| AS-SPAD-02 | 最大 A/B/Bias tile 适合各固定窗口 | S0 | Region checker |
+| AS-ST-01 | Store descriptor push 需要活跃 store context | S0 | Top/store FSM |
+| AS-ST-02 | Store descriptor row count 非零 | S0 | Top/store FSM |
+| AS-ST-03 | Store FSM 不能接受重叠 store start | S0 | Store FSM |
+| AS-CSTORE-01 | Coalescer write M tile、row 和 N-block slot 在范围内 | S0 | C store coalescer |
+| AS-CSTORE-02 | Coalescer read M tile 和 row 在范围内 | S0 | C store coalescer |
+| AS-DMA-01 | Burst splitter 仅为合法输入产生有效非零 burst | S1 | DMA burst splitter |
+| AS-DMA-02 | 读 auto split 启用时不发出跨 4KB 的 AR | S1 | AXI read DMA |
+| AS-FSM-01 | Command FSM 状态保持合法 | S0 | Command FSM / coverage review |
+| AS-AXI-01 | AXI 错误 response 锁存到期望错误码 | S1 | 读写 DMA + command FSM |
+
+## 11. 回归测试计划
+
+### 11.1 Smoke 回归
+
+| 属性 | 描述 |
+| ---- | ---- |
+| 目的 | RTL/TB 修改后的快速信心检查 |
+| 触发 | 本地改动或回归前检查 |
+| 范围 | 核心 P0 定向测试 |
+| 最大运行时间 | 每最小路径测试 180s（除非另有配置） |
+| 通过标准 | 100% 通过，无 UVM error/fatal，无断言失败 |
+
+Smoke 测试：`tensor_base_8x8_test`、INT4/INT8/INT16 4×4 测试、IRQ、矩形、非对齐、退化、saturation。
+
+### 11.2 Base 回归
+
+| 属性 | 描述 |
+| ---- | ---- |
+| 目的 | 每日功能稳定性 |
+| 范围 | P0/P1 定向 + 异常测试 |
+| 通过标准 | 所有 P0 通过，无未分类 P1 失败，无未审核断言失败 |
+| 失败响应 | 诊断、分类为 RTL/TB/SPEC/基础设施，更新 `bug_log.md` |
+
+### 11.3 Full 回归
+
+| 属性 | 描述 |
+| ---- | ---- |
+| 目的 | 覆盖率收敛和发布质量检查 |
+| 范围 | 所有定向、异常、随机、压力测试，启用覆盖率 |
+| 通过标准 | 100% 测试通过或有记录 waiver；覆盖率目标达成或 waiver |
+| 失败响应 | 修复或审核前阻塞覆盖率 sign-off |
+
+### 11.4 性能 / 压力回归
+
+| 指标 | 测量方法 | 阈值 |
+| ---- | -------- | ---- |
+| Load/compute overlap | TB 性能 monitor | 仅趋势（除非发布目标） |
+| Store 进度 | Writer/store monitor | 无死锁；row-ready 遵守 |
+| 连续稳定性 | 定向 B2B 和随机测试 | 无残留状态或 mismatch |
+| 随机最大压力 | 多种子随机最大测试 | 无挂死/mismatch/断言失败 |
+
+## 12. Pass/Fail 标准
+
+### 12.1 单个测试 Pass/Fail 标准
+
+| 结果 | 定义 |
+| ---- | ---- |
+| PASS | 测试完成，scoreboard 零 mismatch，`UVM_ERROR=0`，`UVM_FATAL=0`，断言干净 |
+| FAIL | 任何 mismatch、UVM error/fatal、断言失败、超时、仿真器崩溃或意外 status/error |
+| SKIP | 测试不适用于当前配置，报告记录的跳过原因 |
+
+### 12.2 回归 Pass/Fail 标准
+
+| 回归 | 标准 |
+| ---- | ---- |
+| Smoke | 100% 通过 |
+| Base | 所有 P0/P1 预期测试通过或有记录的活跃 bug |
+| Full | 所有测试通过，覆盖率合并，waiver 已审核 |
+| 覆盖率收敛 | P0/P1 功能覆盖率关闭；代码覆盖率空洞已审核和 waiver/fix |
+
+## 13. 签核
+
+### 13.1 签核检查表
+
+| ID | 检查项 | 负责人 | 标准 | 状态 |
+| -- | ------ | ------ | ---- | ---- |
+| SF-01 | RTL 编译干净 | RTL/DV | `make elab` 以选定选项通过 | Open |
+| SF-02 | Smoke 回归干净 | DV | P0 smoke 全通过 | Open |
+| SF-03 | Full 回归干净 | DV | 定向/异常/随机/压力全通过 | Open |
+| SF-04 | 功能覆盖率关闭 | DV | P0/P1 100%，P2 空洞已审核 | Open |
+| SF-05 | 代码覆盖率已审核 | DV + RTL | 目标达成或 waiver 已记录 | Open |
+| SF-06 | 断言失败已解决 | RTL/DV | 零未审核失败 | Open |
+| SF-07 | Bug 日志已审核 | RTL/DV | 无开放 P0/P1；P2 处置已记录 | Open |
+| SF-08 | SPEC 对齐检查 | RTL/DV | 计划和测试匹配当前 SPEC | Open |
+| SF-09 | Waiver 文件已审核 | RTL/DV | Waiver 有范围、有依据、可复现 | Open |
+
+### 13.2 覆盖率收敛跟踪
+
+覆盖率收敛在 `cov_waivers/` 和相关覆盖率报告中跟踪。每次收敛迭代必须记录：
+
+- 回归命令/构建选项。
+- 通过/失败测试列表。
+- 覆盖率增量。
+- 新排除项及依据。
+- 剩余未覆盖分支/FSM 跃迁及负责人。
+
+## 14. Bug 管理
+
+### 14.1 Bug 严重级别
+
+| 级别 | 含义 | 示例 |
+| ---- | ---- | ---- |
+| P0 | 阻断基本操作或损坏数据 | C 输出错误、死锁、复位损坏 |
+| P1 | 阻断特性收敛 | 缺失错误码、IRQ 问题、覆盖率关键可达弧 |
+| P2 | 重要但可用 waiver 不阻塞发布 | 罕见压力空洞、低风险覆盖率空洞 |
+| P3 | 清理/文档 | 消息清晰度、非阻塞文档问题 |
+
+### 14.2 Bug 生命周期
+
+1. 以精确测试、种子、构建和选项复现。
+2. 分类为 RTL、TB、SPEC、coverage waiver 或基础设施。
+3. 记录到 `tb/doc/bug_log.md`。
+4. 修复并重跑失败测试。
+5. 重跑受影响的 smoke/base 测试。
+6. 仅在证据记录后关闭。
+
+### 14.3 Bug 记录字段
+
+| 字段 | 描述 |
+| ---- | ---- |
+| ID | 稳定 bug ID |
+| 日期 | 发现日期 |
+| 测试/种子 | 复现方式 |
+| 模块 | 怀疑的 RTL/TB 模块 |
+| 症状 | 可观察失败 |
+| 根因 | 确认原因 |
+| 修复 | RTL/TB/SPEC 变更 |
+| 验证 | 重跑测试 |
+| 状态 | Open / Fixed / Waived / Duplicate |
+
+## 15. 风险与限制
+
+### 15.1 风险
+
+| 风险 | 影响 | 缓解措施 |
+| ---- | ---- | -------- |
+| INT4 数据通路打包/符号扩展 | 数据损坏 | 定向 INT4 和随机 corner-data 测试 |
+| C store coalescer 尾部处理 | Row-major C mismatch | 定向 N-tail 和矩形测试 |
+| FSM error arc | 覆盖率空洞或不可达定义 | 定向错误注入和 waiver 审核 |
+| 写 4KB crossing | 真实系统集成约束 | 定向错误测试和 SPEC 文档 |
+| B 预转置 ABI | 软件/DV mismatch | SPEC 和参考模型对齐 |
+| 随机种子逃逸 | 潜伏 corner bug | 多种子 legal/corner/max 随机回归 |
+
+### 15.2 限制
+
+- 当前计划聚焦 RTL 仿真。
+- 形式验证和 STA 明确排除（除非要求）。
+- 性能指标在 TB 中观测，但非 sign-off 阈值（除非后续定义）。
+- 默认收敛目标为当前 4×4 RTL 配置；8×8 升级需要新的针对性收敛。
+- 软件驱动行为由 UVM sequence 建模，非真实 CPU/driver 栈。
+
+## 16. 交付物
+
+| 交付物 | 路径 / 负责人 |
+| ------ | ------------ |
+| RTL SPEC | `rtl/SPEC_EN.md`、`rtl/SPEC_CN.md` |
+| 验证计划 | `tb/doc/VERIFICATION_PLAN_V1.md` |
+| Bug 日志 | `tb/doc/bug_log.md` |
+| 覆盖率 waiver | `cov_waivers/` |
+| 回归命令/结果 | `sim/run/*/log/run.log`、覆盖率报告 |
+| Testbench 源码 | `tb/` |
+| 文件列表和 Make 目标 | `script/filelist.f`、`Makefile` |
+
+本计划针对当前 RTL 事实编制完整，应在 RTL SPEC 变更时同步更新。

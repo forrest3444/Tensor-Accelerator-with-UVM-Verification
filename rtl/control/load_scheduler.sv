@@ -15,7 +15,6 @@ module load_scheduler
   input  accel_cfg_t cfg_i,
   input  logic [5:0] tile_m_i,
   input  logic [5:0] tile_n_i,
-  input  logic [5:0] tile_k_i,
   input  logic [15:0] a_spad_base_i,
   input  logic [15:0] b_spad_base_i,
   input  logic [15:0] bias_spad_base_i,
@@ -67,7 +66,6 @@ module load_scheduler
   logic [31:0] elem_b_s1_q;
   logic [31:0] row_base_s1_q;
   logic [31:0] col_base_s1_q;
-  logic [31:0] k_base_s1_q;
   logic [31:0] m_size_s1_q;
   logic [31:0] n_size_s1_q;
   logic [31:0] k_size_s1_q;
@@ -91,7 +89,7 @@ module load_scheduler
   post_op_e post_op_s2_q;
   logic [31:0] tile_rows_s2_q;
   logic [31:0] tile_cols_s2_q;
-  logic [31:0] tile_k_s2_q;
+  logic [31:0] k_size_s2_q;
   logic [31:0] a_elem_index_s2_q;
   logic [31:0] b_elem_index_s2_q;
 
@@ -99,7 +97,6 @@ module load_scheduler
   logic [31:0] b_row_stride_s3_q;
   logic [31:0] tile_rows_s3_q;
   logic [31:0] tile_cols_s3_q;
-  logic [31:0] tile_k_s3_q;
   logic [31:0] a_base_s3_q;
   logic [31:0] b_base_s3_q;
   logic [31:0] bias_base_s3_q;
@@ -211,7 +208,6 @@ module load_scheduler
       elem_b_s1_q <= elem_bytes(cfg_i.precision);
       row_base_s1_q <= {26'd0, tile_m_i} * 32'(TILE_M);
       col_base_s1_q <= {26'd0, tile_n_i} * 32'(TILE_N);
-      k_base_s1_q <= 32'd0;
       m_size_s1_q <= cfg_i.m_size;
       n_size_s1_q <= cfg_i.n_size;
       k_size_s1_q <= cfg_i.k_size;
@@ -237,7 +233,7 @@ module load_scheduler
                         32'(TILE_M) : (m_size_s1_q - row_base_s1_q);
       tile_cols_s2_q <= ((n_size_s1_q - col_base_s1_q) > 32'(TILE_N)) ?
                         32'(TILE_N) : (n_size_s1_q - col_base_s1_q);
-      tile_k_s2_q <= k_size_s1_q;
+      k_size_s2_q <= k_size_s1_q;
       a_elem_index_s2_q <= row_base_s1_q * k_size_s1_q;
       b_elem_index_s2_q <= col_base_s1_q * k_size_s1_q;
 
@@ -245,20 +241,21 @@ module load_scheduler
         logic [31:0] a_row_bytes;
         logic [31:0] b_row_bytes;
 
-        a_row_bytes = tile_k_s2_q * elem_b_s2_q;
-        b_row_bytes = tile_k_s2_q * elem_b_s2_q;
+        a_row_bytes = packed_row_bytes(k_size_s2_q, cfg_i.precision);
+        b_row_bytes = packed_row_bytes(k_size_s2_q, cfg_i.precision);
         a_row_stride_s3_q <= align8_bytes(a_row_bytes);
         b_row_stride_s3_q <= align8_bytes(b_row_bytes);
       end
       tile_rows_s3_q <= tile_rows_s2_q;
       tile_cols_s3_q <= tile_cols_s2_q;
-      tile_k_s3_q <= tile_k_s2_q;
       a_base_s3_q <= a_base_s2_q;
       b_base_s3_q <= b_base_s2_q;
       bias_base_s3_q <= bias_base_s2_q;
       col_base_s3_q <= col_base_s2_q;
-      a_start_byte_s3_q <= row_base_s2_q * align8_bytes(tile_k_s2_q * elem_b_s2_q);
-      b_start_byte_s3_q <= col_base_s2_q * align8_bytes(tile_k_s2_q * elem_b_s2_q);
+      a_start_byte_s3_q <= row_base_s2_q *
+                            align8_bytes(packed_row_bytes(k_size_s2_q, cfg_i.precision));
+      b_start_byte_s3_q <= col_base_s2_q *
+                            align8_bytes(packed_row_bytes(k_size_s2_q, cfg_i.precision));
       a_spad_offset_s3_q <= a_spad_offset_s2_q;
       b_spad_offset_s3_q <= b_spad_offset_s2_q;
       bias_spad_offset_s3_q <= bias_spad_offset_s2_q;

@@ -20,7 +20,7 @@ class tensor_random_legal_vseq extends tensor_matmul_vseq;
   }
 
   constraint c_random_legal_modes {
-    precision inside {PREC_INT8, PREC_INT16};
+    precision inside {PREC_INT4, PREC_INT8, PREC_INT16};
     post_op inside {POST_NONE, POST_BIAS, POST_RELU, POST_BIAS_RELU};
     sat_mode inside {SAT_WRAP, SAT_SATURATE};
     burst_len inside {8'd1, 8'd4, 8'd8, 8'd16};
@@ -143,6 +143,9 @@ class tensor_random_legal_vseq extends tensor_matmul_vseq;
   virtual function int signed random_operand();
     if (precision == PREC_INT16) begin
       return int'($urandom_range(0, 2047)) - 1024;
+    end
+    if (precision == PREC_INT4) begin
+      return int'($urandom_range(0, 15)) - 8;
     end
     return int'($urandom_range(0, 255)) - 128;
   endfunction

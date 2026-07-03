@@ -118,7 +118,6 @@ LOAD_A -> LOAD_B -> LOAD_BIAS(optional) -> COMPUTE -> POST_PROCESS -> STORE
 ```systemverilog
 parameter int TILE_M = ARRAY_M;
 parameter int TILE_N = ARRAY_N;
-parameter int TILE_K = 4;
 parameter int OUT_BYTES = 4;
 parameter int BIAS_BYTES = 4;
 ```
@@ -126,8 +125,8 @@ parameter int BIAS_BYTES = 4;
 需要检查和替换的典型位置：
 
 - `tile_count_fsm.sv` 中 tile count、row/col valid loop 和 C external offset 计算。
-- `load_scheduler.sv` 中 tile_rows/tile_cols/tile_k 的 `> 4` 判断。
-- `tensor_accel_top.sv` 中 row_base、col_base、k_base、compute_k_limit、C write byte 计算。
+- `load_scheduler.sv` 中 tile_rows/tile_cols 的 `> 4` 判断。
+- `tensor_accel_top.sv` 中 row_base、col_base、compute_k_limit、C write byte 计算。
 - post-process writeback 计数和地址计算。
 
 #### 5.2.2 compute latency 参数化
@@ -279,7 +278,7 @@ cycle window N:
 
 tile pipeline 内部至少拆成以下子状态机，各子状态机通过 ready/valid/done 形式握手，不直接跳转对方状态：
 
-- `tile_count_fsm`：按 in-order 顺序产生 tile token，维护 `tile_m/tile_n/tile_k/last_tile`，不参与资源仲裁。
+- `tile_count_fsm`：按 in-order 顺序产生 tile token，维护 `tile_m/tile_n/last_tile`，不参与资源仲裁。当前架构一次覆盖完整 K，不维护 `tile_k`。
 - `buffer_manager_fsm`：维护每个 buffer 的所有权、hazard 检查和 in-order 提交窗口。
 - `load_fsm`：消费 load token，发起 A/B/bias read descriptor，并在 descriptor drain 后回写 buffer 状态。
 - `compute_fsm`：消费 ready-for-compute token，锁存 compute context，启动 array，完成后回写 buffer 状态。
@@ -303,13 +302,12 @@ tile pipeline 内部至少拆成以下子状态机，各子状态机通过 ready
 
 - `tile_m`
 - `tile_n`
-- `tile_k`
 - `row_valid`
 - `col_valid`
-- `first_k_tile`
-- `last_k_tile`
 - `last_tile`
 - `buffer_id`
+
+如果后续引入 K blocking/partial-sum 累加，再补充 `tile_k/first_k_tile/last_k_tile`。
 - `post_op`
 - `sat_mode`
 - `c_ext_offset`
@@ -320,7 +318,7 @@ tile pipeline 内部至少拆成以下子状态机，各子状态机通过 ready
 
 - `valid`
 - `tile_id`
-- `tile_m/tile_n/tile_k`
+- `tile_m/tile_n`
 - `a_region_state`
 - `b_region_state`
 - `c_region_state`
@@ -404,7 +402,7 @@ B 输入矩阵默认由软件预转置，以便硬件按列条带顺序读取；
 
 ### 8.3 关键工作
 
-- 让 `ARRAY_M/ARRAY_N/TILE_K` 在 top、scheduler、load、post-process、store 中真正参数化。
+- 让 `ARRAY_M/ARRAY_N` 在 top、scheduler、load、post-process、store 中真正参数化。
 - 支持 8x8 build/elab。
 - 增加 8x8 directed testcase。
 - 根据综合和 STA 报告评估频率、面积、功耗。

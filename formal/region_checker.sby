@@ -1,0 +1,17 @@
+[options]
+mode bmc
+depth 4
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv tensor_pkg_yosys.sv
+read_verilog -formal -sv region_checker_yosys.sv
+read_verilog -formal -sv region_checker_formal.sv
+prep -top region_checker_formal
+
+[files]
+tensor_pkg_yosys.sv
+compat/region_checker_yosys.sv
+region_checker_formal.sv

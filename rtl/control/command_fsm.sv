@@ -15,18 +15,18 @@ module command_fsm
   input  logic write_dma_done_i,
   input  logic write_dma_error_i,
   input  logic store_busy_i,
+  input  logic store_required_i,
   input  logic read_cross_4kb_i,
   input  logic write_cross_4kb_i,
   input  logic compute_done_i,
+  input  logic post_process_active_i,
   input  logic post_process_done_i,
   input  logic overflow_i,
   input  logic last_tile_i,
-  input  logic last_k_tile_i,
   input  logic next_buffer_free_i,
   input  logic next_load_prefetch_safe_i,
   input  logic load_tile_done_i,
   output logic sched_init_o,
-  output logic sched_advance_k_o,
   output logic sched_advance_o,
   output logic load_tile_start_o,
   output logic compute_start_o,
@@ -60,17 +60,19 @@ module command_fsm
   logic overflow_seen_q;
   logic active_last_tile_q;
   logic prefetch_valid_q;
+  logic compute_issued_q;
+  logic compute_complete;
   logic [31:0] watchdog_q;
   logic timeout_hit;
 
   assign status_o = status_q;
   assign error_code_o = error_q;
   assign timeout_hit = (watchdog_q == 32'h000f_ffff);
+  assign compute_complete = compute_issued_q && compute_done_i;
 
   always_comb begin
     state_d = state_q;
     sched_init_o = 1'b0;
-    sched_advance_k_o = 1'b0;
     sched_advance_o = 1'b0;
     load_tile_start_o = 1'b0;
     compute_start_o = 1'b0;
@@ -102,7 +104,7 @@ module command_fsm
           sched_advance_o = 1'b1;
           state_d = ST_PIPE_LOAD;
         end
-        else if (compute_done_i) state_d = ST_POST_PROCESS_TILE;
+        else if (compute_complete) state_d = ST_POST_PROCESS_TILE;
       end
       ST_PIPE_ADVANCE: begin
         sched_advance_o = 1'b1;
@@ -114,9 +116,9 @@ module command_fsm
         if (read_dma_error_i || write_dma_error_i ||
             read_cross_4kb_i || write_cross_4kb_i || timeout_hit) begin
           state_d = ST_ERROR;
-        end else if (load_tile_done_i && compute_done_i) begin
+        end else if (load_tile_done_i && compute_complete) begin
           state_d = ST_POST_PROCESS_TILE;
-        end else if (compute_done_i) begin
+        end else if (compute_complete) begin
           state_d = ST_PIPE_WAIT_LOAD;
         end else if (load_tile_done_i) begin
           state_d = ST_PIPE_WAIT_COMPUTE;
@@ -130,13 +132,46 @@ module command_fsm
       end
       ST_PIPE_WAIT_COMPUTE: begin
         if (write_dma_error_i || write_cross_4kb_i || timeout_hit) state_d = ST_ERROR;
-        else if (compute_done_i) state_d = ST_POST_PROCESS_TILE;
+        else if (compute_complete) state_d = ST_POST_PROCESS_TILE;
       end
       ST_POST_PROCESS_TILE: begin
-        post_process_start_o = 1'b1;
-        if (!store_busy_i) store_start_o = 1'b1;
         if (write_dma_error_i || write_cross_4kb_i || timeout_hit) state_d = ST_ERROR;
-        else if (post_process_done_i && write_dma_done_i) begin
+        else if (store_required_i && store_busy_i && !post_process_active_i) begin
+          state_d = ST_WAIT_STORE_SLOT;
+        end else begin
+          post_process_start_o = 1'b1;
+          if (store_required_i && !store_busy_i) store_start_o = 1'b1;
+          if (post_process_done_i && (!store_required_i || write_dma_done_i)) begin
+            if (active_last_tile_q) begin
+              state_d = ST_DONE;
+            end else if (prefetch_valid_q) begin
+              state_d = ST_COMPUTE_TILE;
+            end else begin
+              sched_advance_o = 1'b1;
+              state_d = ST_LOAD_TILE;
+            end
+          end else if (post_process_done_i) begin
+            if (!store_required_i) begin
+              if (active_last_tile_q) begin
+                state_d = ST_DONE;
+              end else if (prefetch_valid_q) begin
+                state_d = ST_COMPUTE_TILE;
+              end else begin
+                sched_advance_o = 1'b1;
+                state_d = ST_LOAD_TILE;
+              end
+            end else if (active_last_tile_q) begin
+              state_d = ST_WAIT_FINAL_STORE;
+            end else begin
+              state_d = ST_STORE_TILE;
+            end
+          end
+        end
+      end
+      ST_WAIT_STORE_SLOT: begin
+        if (write_dma_error_i || write_cross_4kb_i || timeout_hit) begin
+          state_d = ST_ERROR;
+        end else if (!store_required_i) begin
           if (active_last_tile_q) begin
             state_d = ST_DONE;
           end else if (prefetch_valid_q) begin
@@ -145,27 +180,8 @@ module command_fsm
             sched_advance_o = 1'b1;
             state_d = ST_LOAD_TILE;
           end
-        end
-        else if (post_process_done_i) begin
-          if (active_last_tile_q) state_d = ST_WAIT_FINAL_STORE;
-          else state_d = ST_STORE_TILE;
-        end
-      end
-      ST_WAIT_STORE_SLOT: begin
-        if (write_dma_error_i || write_cross_4kb_i || timeout_hit) begin
-          state_d = ST_ERROR;
         end else if (!store_busy_i) begin
-          store_start_o = 1'b1;
-          if (active_last_tile_q) begin
-            state_d = ST_WAIT_FINAL_STORE;
-          end else if (prefetch_valid_q) begin
-            state_d = ST_COMPUTE_TILE;
-          end else if (next_buffer_free_i) begin
-            sched_advance_o = 1'b1;
-            state_d = ST_LOAD_TILE;
-          end else begin
-            state_d = ST_STORE_TILE;
-          end
+          state_d = ST_POST_PROCESS_TILE;
         end
       end
       ST_STORE_TILE: begin
@@ -207,6 +223,7 @@ module command_fsm
       overflow_seen_q <= 1'b0;
       active_last_tile_q <= 1'b0;
       prefetch_valid_q <= 1'b0;
+      compute_issued_q <= 1'b0;
       watchdog_q <= 32'd0;
     end else if (soft_reset_i) begin
       state_q <= ST_IDLE;
@@ -216,6 +233,7 @@ module command_fsm
       overflow_seen_q <= 1'b0;
       active_last_tile_q <= 1'b0;
       prefetch_valid_q <= 1'b0;
+      compute_issued_q <= 1'b0;
       watchdog_q <= 32'd0;
     end else begin
       state_q <= state_d;
@@ -255,6 +273,16 @@ module command_fsm
       if (state_q == ST_COMPUTE_TILE) begin
         active_last_tile_q <= last_tile_i;
       end
+      if (state_d == ST_POST_PROCESS_TILE || state_d == ST_DONE ||
+          state_d == ST_ERROR || state_d == ST_IDLE) begin
+        compute_issued_q <= 1'b0;
+      end else if ((state_q == ST_COMPUTE_TILE ||
+                    state_q == ST_PIPE_LOAD ||
+                    state_q == ST_PIPE_WAIT_LOAD ||
+                    state_q == ST_PIPE_WAIT_COMPUTE) &&
+                   !compute_done_i) begin
+        compute_issued_q <= 1'b1;
+      end
       if (state_q == ST_PIPE_LOAD && load_tile_done_i) begin
         prefetch_valid_q <= 1'b1;
       end else if (state_q == ST_PIPE_WAIT_LOAD && load_tile_done_i) begin
@@ -266,7 +294,8 @@ module command_fsm
                    prefetch_valid_q && !active_last_tile_q) begin
         prefetch_valid_q <= 1'b0;
       end else if ((state_q == ST_POST_PROCESS_TILE) && post_process_done_i &&
-                   write_dma_done_i && prefetch_valid_q && !active_last_tile_q) begin
+                   (!store_required_i || write_dma_done_i) &&
+                   prefetch_valid_q && !active_last_tile_q) begin
         prefetch_valid_q <= 1'b0;
       end else if (state_q == ST_LOAD_TILE) begin
         prefetch_valid_q <= 1'b0;
@@ -284,4 +313,5 @@ module command_fsm
       end
     end
   end
+
 endmodule

@@ -1,9 +1,11 @@
-module mac_unit (
+module mac_unit
+  import tensor_pkg::*;
+(
   input  logic        clk,
   input  logic        rst_n,
   input  logic        clear_i,
   input  logic        valid_i,
-  input  logic        precision_i,
+  input  precision_e  precision_i,
   input  logic [15:0] a_i,
   input  logic [15:0] b_i,
   output logic signed [39:0] acc_o,
@@ -19,13 +21,20 @@ module mac_unit (
   logic               valid_q;
 
   always_comb begin
-    if (precision_i) begin
-      a_mul = a_i;
-      b_mul = b_i;
-    end else begin
-      a_mul = {{8{a_i[7]}}, a_i[7:0]};
-      b_mul = {{8{b_i[7]}}, b_i[7:0]};
-    end
+    unique case (precision_i)
+      PREC_INT16: begin
+        a_mul = a_i;
+        b_mul = b_i;
+      end
+      PREC_INT4: begin
+        a_mul = {{12{a_i[3]}}, a_i[3:0]};
+        b_mul = {{12{b_i[3]}}, b_i[3:0]};
+      end
+      default: begin
+        a_mul = {{8{a_i[7]}}, a_i[7:0]};
+        b_mul = {{8{b_i[7]}}, b_i[7:0]};
+      end
+    endcase
     product_d = a_mul * b_mul;
 
     product_ext = {{8{product_q[31]}}, product_q};

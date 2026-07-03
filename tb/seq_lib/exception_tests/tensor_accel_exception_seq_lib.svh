@@ -7,6 +7,7 @@
 `include "exception_tests/tensor_clear_error_recovery_vseq.sv"
 `include "exception_tests/tensor_axi_read_error_vseq.sv"
 `include "exception_tests/tensor_axi_write_error_vseq.sv"
+`include "exception_tests/tensor_command_fsm_error_arc_vseq.sv"
 `include "exception_tests/tensor_command_while_busy_vseq.sv"
 `include "exception_tests/tensor_start_while_done_vseq.sv"
 `include "exception_tests/tensor_burst_len_config_vseq.sv"

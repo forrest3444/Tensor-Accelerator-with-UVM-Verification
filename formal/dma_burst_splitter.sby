@@ -1,0 +1,15 @@
+[options]
+mode prove
+depth 1
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv dma_burst_splitter.sv
+read_verilog -formal -sv dma_burst_splitter_formal.sv
+prep -top dma_burst_splitter_formal
+
+[files]
+../rtl/dma/dma_burst_splitter.sv
+dma_burst_splitter_formal.sv

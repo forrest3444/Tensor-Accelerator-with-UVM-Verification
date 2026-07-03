@@ -11,14 +11,14 @@ module tensor_writer #(
   input  logic rst_n,
   input  logic start_i,
   input  logic [31:0] ext_addr_i,
-  input  logic [31:0] byte_len_i,
+  input  logic [15:0] byte_len_i,
   input  logic [7:0]  burst_len_i,
   input  logic [15:0] spad_offset_i,
   input  logic        row_mode_i,
   input  logic [ROW_COUNT_WIDTH-1:0] row_count_i,
   input  logic [ROW_READY_WIDTH-1:0] row_ready_i,
-  input  logic [31:0] row_bytes_i,
-  input  logic [31:0] ext_row_stride_i,
+  input  logic [15:0] row_bytes_i,
+  input  logic [15:0] ext_row_stride_i,
   input  logic [15:0] spad_row_stride_i,
   output logic busy_o,
   output logic done_o,
@@ -61,9 +61,9 @@ module tensor_writer #(
   logic [ROW_COUNT_WIDTH-1:0] row_q;
   logic [ROW_COUNT_WIDTH-1:0] row_count_q;
   logic [31:0] ext_addr_q;
-  logic [31:0] byte_len_q;
-  logic [31:0] row_bytes_q;
-  logic [31:0] ext_row_stride_q;
+  logic [15:0] byte_len_q;
+  logic [15:0] row_bytes_q;
+  logic [15:0] ext_row_stride_q;
   logic [15:0] spad_offset_q;
   logic [15:0] spad_row_stride_q;
   logic [7:0] burst_len_q;
@@ -77,9 +77,9 @@ module tensor_writer #(
   assign error_o = error_q || dma_error;
   assign cross_4kb_o = dma_cross_4kb;
   assign row_last = row_q == (row_count_q - 1'b1);
-  assign dma_addr = row_mode_q ? (ext_addr_q + (32'(row_q) * ext_row_stride_q)) :
+  assign dma_addr = row_mode_q ? (ext_addr_q + (32'(row_q) * 32'(ext_row_stride_q))) :
                     ext_addr_q;
-  assign dma_byte_len = row_mode_q ? row_bytes_q : byte_len_q;
+  assign dma_byte_len = row_mode_q ? 32'(row_bytes_q) : 32'(byte_len_q);
   assign dma_spad_offset = row_mode_q ?
                            (spad_offset_q + (16'(row_q) * spad_row_stride_q)) :
                            spad_offset_q;
@@ -95,9 +95,9 @@ module tensor_writer #(
       row_q <= '0;
       row_count_q <= ROW_COUNT_WIDTH'(1);
       ext_addr_q <= 32'd0;
-      byte_len_q <= 32'd0;
-      row_bytes_q <= 32'd0;
-      ext_row_stride_q <= 32'd0;
+      byte_len_q <= 16'd0;
+      row_bytes_q <= 16'd0;
+      ext_row_stride_q <= 16'd0;
       spad_offset_q <= 16'd0;
       spad_row_stride_q <= 16'd0;
       burst_len_q <= 8'd0;

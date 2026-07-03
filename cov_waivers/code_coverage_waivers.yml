@@ -1,0 +1,90 @@
+# Code coverage waivers.
+# Source of truth for review — all waivers must be recorded here.
+# Tool-specific exports (DVE .el, URG exclude) are derived from this file.
+
+# Naming convention: WVR-CODE-{MODULE}-{NNN}
+#   MODULE:  module abbreviation per tb/doc/bug_log.md
+#   NNN:     sequence number, zero-padded
+
+# Fields:
+#   id                — unique waiver ID
+#   vtrack_id         — coverage tracking ID (linking to vtrack)
+#   status            — proposed | approved | rejected | superseded
+#   coverage_type     — line | condition | fsm | branch | toggle
+#   source_file       — path relative to project root
+#   report            — URG report path + section (optional)
+#   scope             — module and instance name
+#   location          — line number, expression, uncovered condition
+#   title             — short summary
+#   rationale         — detailed justification
+#   risk              — low | medium | high
+#   expiry            — conditions for revisit
+#   verification      — how the waiver was reviewed/confirmed
+
+waivers:
+  - id: WVR-CODE-FSM-001
+    vtrack_id: VTR-FSM-001
+    status: proposed
+    coverage_type: fsm
+    source_file: rtl/control/command_fsm.sv
+    scope:
+      module: command_fsm
+      instance: tb_top.dut.u_command_fsm
+    location:
+      transitions:
+        - ST_CHECK_CONFIG -> ST_IDLE
+        - ST_COMPUTE_TILE -> ST_IDLE
+        - ST_PIPE_ADVANCE -> ST_IDLE
+        - ST_PIPE_WAIT_COMPUTE -> ST_IDLE
+        - ST_PIPE_WAIT_LOAD -> ST_IDLE
+        - ST_PREPARE_TILE -> ST_IDLE
+        - ST_STORE_TILE -> ST_IDLE
+        - ST_WAIT_FINAL_STORE -> ST_IDLE
+        - ST_WAIT_STORE_SLOT -> ST_IDLE
+      uncovered_detail: >
+        None of these states has an always_comb path to ST_IDLE.
+        The only functional →ST_IDLE transitions are ST_DONE→ST_IDLE
+        (clear_done_i) and ST_ERROR→ST_IDLE (clear_error_i). The nine
+        listed transitions can only be reached via rst_n=0 or
+        soft_reset_i=1 in the always_ff block, which bypasses state_d
+        entirely. FSM coverage tracks state_q→state_d, so reset-only
+        transitions are never observed.
+    title: "command_fsm: 9 reset-only transitions to ST_IDLE"
+    rationale: >
+      always_ff assigns state_q <= ST_IDLE on !rst_n or soft_reset_i,
+      without going through the combinational state_d logic. Of the 14
+      non-IDLE states, only ST_DONE and ST_ERROR have a functional
+      path to ST_IDLE via state_d in the always_comb case block. The
+      other states all transition to other active states or ST_ERROR.
+      The default case (defensive one-hot encoding) also maps to
+      ST_IDLE but is unreachable under unique case semantics. These
+      transitions are not functional stimulus targets.
+    risk: low
+    expiry: "Revisit if command_fsm adds abort/flush/cancel semantics that return to IDLE from active states."
+    verification: "Static RTL review: inspected always_comb case block for each state. Confirmed no state_d=ST_IDLE assignment outside ST_DONE/ST_ERROR/default."
+
+  - id: WVR-CODE-FSM-002
+    vtrack_id: VTR-FSM-002
+    status: proposed
+    coverage_type: fsm
+    source_file: rtl/control/command_fsm.sv
+    scope:
+      module: command_fsm
+      instance: tb_top.dut.u_command_fsm
+    location:
+      transition: default -> ST_IDLE
+      uncovered_detail: >
+        The default arm of unique case (state_d = ST_IDLE) is
+        unreachable due to one-hot encoding: the case expression is
+        state_q which is guaranteed to match exactly one case item
+        because it is driven from the same one-hot enum. unique case
+        formal semantics make default unreachable.
+    title: "command_fsm: unreachable default arm in unique case"
+    rationale: >
+      One-hot encoded state_e with unique case semantics guarantees
+      that state_q matches exactly one case item. The default arm
+      exists as a defensive coding practice but can never be entered.
+      Formal tools can prove unreachability.
+    risk: low
+    expiry: "Revisit if state encoding changes from one-hot or if unique case is replaced with priority case."
+    verification: "Static RTL review: one-hot enum with 15-bit encoding + unique case semantics."

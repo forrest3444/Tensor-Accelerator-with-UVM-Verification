@@ -13,7 +13,8 @@ package tensor_pkg;
 
   typedef enum logic [1:0] {
     PREC_INT8  = 2'd0,
-    PREC_INT16 = 2'd1
+    PREC_INT16 = 2'd1,
+    PREC_INT4  = 2'd2
   } precision_e;
 
   typedef enum logic [1:0] {
@@ -71,16 +72,13 @@ package tensor_pkg;
 
   typedef struct packed {
     logic [31:0] addr;
-    logic [31:0] byte_len;
-    tensor_type_e tensor_type;
-    logic [15:0] tile_index;
-    logic [31:0] spad_offset;
+    logic [15:0] byte_len;
+    logic [SPAD_ADDR_WIDTH-1:0] spad_offset;
     logic row_mode;
     logic [3:0] row_count;
-    logic [31:0] row_bytes;
-    logic [31:0] ext_row_stride;
-    logic [31:0] spad_row_stride;
-    logic is_last;
+    logic [15:0] row_bytes;
+    logic [15:0] ext_row_stride;
+    logic [SPAD_ADDR_WIDTH-1:0] spad_row_stride;
   } dma_desc_t;
 
   function automatic logic bias_enabled(input post_op_e op);
@@ -93,6 +91,13 @@ package tensor_pkg;
 
   function automatic logic [31:0] elem_bytes(input precision_e precision);
     return (precision == PREC_INT16) ? 32'd2 : 32'd1;
+  endfunction
+
+  function automatic logic [31:0] packed_row_bytes(input logic [31:0] elem_count,
+                                                   input precision_e precision);
+    return (precision == PREC_INT16) ? (elem_count << 1) :
+           (precision == PREC_INT4)  ? ((elem_count + 32'd1) >> 1) :
+                                       elem_count;
   endfunction
 
   function automatic logic [31:0] align8_bytes(input logic [31:0] value);

@@ -98,6 +98,9 @@ class tensor_axi_write_error_vseq extends base_vseq;
     bit [31:0] base;
     bit [31:0] byte_len;
     bit        use_decerr;
+    bit [31:0] m_size;
+    bit [31:0] n_size;
+    bit [31:0] k_size;
   } write_error_case_t;
 
   function new(string name = "tensor_axi_write_error_vseq");
@@ -107,8 +110,10 @@ class tensor_axi_write_error_vseq extends base_vseq;
   virtual task body();
     write_error_case_t error_cases[$];
 
-    error_cases.push_back('{32'h0003_0000, 32'd64, 1'b0});
-    error_cases.push_back('{32'h0003_0000, 32'd64, 1'b1});
+    error_cases.push_back('{32'h0003_0000, 32'd64, 1'b0, 32'd4, 32'd4, 32'd4});
+    error_cases.push_back('{32'h0003_0000, 32'd64, 1'b1, 32'd4, 32'd4, 32'd4});
+    error_cases.push_back('{32'h0003_0000, 32'd64, 1'b0, 32'd8, 32'd4, 32'd4});
+    error_cases.push_back('{32'h0003_0000, 32'd64, 1'b0, 32'd4, 32'd8, 32'd4});
 
     foreach (error_cases[i]) begin
       run_write_error_case(error_cases[i]);
@@ -134,9 +139,9 @@ class tensor_axi_write_error_vseq extends base_vseq;
               UVM_MEDIUM)
 
     program_seq = tensor_program_seq::type_id::create("program_seq");
-    program_seq.m_size = 32'd4;
-    program_seq.n_size = 32'd4;
-    program_seq.k_size = 32'd4;
+    program_seq.m_size = error_case.m_size;
+    program_seq.n_size = error_case.n_size;
+    program_seq.k_size = error_case.k_size;
     program_seq.precision = PREC_INT8;
     program_seq.post_op = POST_NONE;
     program_seq.sat_mode = SAT_WRAP;
@@ -244,7 +249,10 @@ class tensor_axi_write_mid_row_error_vseq extends tensor_axi_write_error_vseq;
 
     mid_row_error_case = '{32'h0003_0000 + 32'd16,
                            32'd8,
-                           1'b0};
+                           1'b0,
+                           32'd8,
+                           32'd4,
+                           32'd4};
 
     run_write_error_case(mid_row_error_case);
     tensor_axi_write_error_slave_seq::disarm_write_error();

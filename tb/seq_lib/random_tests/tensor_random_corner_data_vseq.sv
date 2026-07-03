@@ -24,6 +24,16 @@ class tensor_random_corner_data_vseq extends tensor_random_legal_vseq;
         default: return int'($urandom_range(0, 65535)) - 32768;
       endcase
     end
+    if (precision == PREC_INT4) begin
+      case ($urandom_range(0, 5))
+        0: return 0;
+        1: return 1;
+        2: return -1;
+        3: return 7;
+        4: return -8;
+        default: return int'($urandom_range(0, 15)) - 8;
+      endcase
+    end
 
     case ($urandom_range(0, 5))
       0: return 0;

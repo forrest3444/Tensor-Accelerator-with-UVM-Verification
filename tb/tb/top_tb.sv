@@ -38,6 +38,7 @@ module top_tb;
   assign dut_if.load_active = u_dut.read_busy;
   assign dut_if.compute_active = u_dut.compute_active;
   assign dut_if.store_active = u_dut.store_active;
+  assign dut_if.command_state = u_dut.u_command_fsm.state_q;
   assign dut_m_axi_rvalid = dut_if.force_axi_rvalid_low ? 1'b0 : axi_if.slave_if[0].rvalid;
   assign dut_if.axi_rvalid_to_dut = dut_m_axi_rvalid;
 
@@ -70,6 +71,10 @@ module top_tb;
 
   initial begin
     dut_if.rst_n = 1'b0;
+    dut_if.tb_cmd_force_start = 1'b0;
+    dut_if.tb_cmd_force_read_error = 1'b0;
+    dut_if.tb_cmd_force_write_error = 1'b0;
+    dut_if.tb_cmd_force_load_done = 1'b0;
     dut_if.force_axi_rvalid_low = 1'b0;
     repeat (8) @(posedge clk);
     dut_if.rst_n = 1'b1;
@@ -134,6 +139,12 @@ module top_tb;
     .m_axi_bid(axi_if.slave_if[0].bid[0]),
     .m_axi_bvalid(axi_if.slave_if[0].bvalid),
     .m_axi_bready(axi_if.slave_if[0].bready),
+`ifndef SYNTHESIS
+    .tb_cmd_force_start_i(dut_if.tb_cmd_force_start),
+    .tb_cmd_force_read_error_i(dut_if.tb_cmd_force_read_error),
+    .tb_cmd_force_write_error_i(dut_if.tb_cmd_force_write_error),
+    .tb_cmd_force_load_done_i(dut_if.tb_cmd_force_load_done),
+`endif
     .irq(dut_if.irq)
   );
 

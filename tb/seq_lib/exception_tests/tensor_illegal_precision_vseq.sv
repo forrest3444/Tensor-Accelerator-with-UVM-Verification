@@ -7,12 +7,12 @@ class tensor_illegal_precision_vseq extends base_vseq;
   rand bit [1:0] illegal_precision;
 
   constraint c_illegal_precision {
-    illegal_precision inside {2'd2, 2'd3};
+    illegal_precision == 2'd3;
   }
 
   function new(string name = "tensor_illegal_precision_vseq");
     super.new(name);
-    illegal_precision = 2'd2;
+    illegal_precision = 2'd3;
   endfunction
 
   virtual task body();

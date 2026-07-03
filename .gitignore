@@ -8,22 +8,12 @@
 # =========================================================
 # Simulator — build outputs
 # =========================================================
-tb/sim/csrc/
-tb/sim/sim/
 sim/
+csrc/
 
 # =========================================================
 # Simulator — waveform / coverage / debug dbs
 # =========================================================
-tb/sim/DVEfiles/
-tb/sim/verdiLog/
-tb/sim/urgReport/
-tb/sim/novas.*
-tb/sim/inter.vpd
-tb/sim/*.vpd
-tb/sim/*.fsdb
-tb/sim/*.vdb
-tb/sim/env.*.xml
 *.fsdb
 *.vpd
 *.vdb
@@ -31,9 +21,6 @@ tb/sim/env.*.xml
 # =========================================================
 # Simulator — transient logs & dumps
 # =========================================================
-tb/sim/*.log
-tb/sim/ucli.key
-tb/sim/vc_hdrs.h
 *.log
 ucli.key
 vc_hdrs.h
@@ -48,8 +35,11 @@ sta/lib/
 # =========================================================
 # EDA — common generated
 # =========================================================
-csrc/
 *.daidir/
+DVEfiles/
+verdiLog/
+urgReport/
+novas.*
 
 # =========================================================
 # Editor / OS

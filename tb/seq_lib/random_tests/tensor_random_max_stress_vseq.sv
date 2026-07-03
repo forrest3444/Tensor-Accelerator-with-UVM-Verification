@@ -5,7 +5,7 @@ class tensor_random_max_stress_vseq extends tensor_random_legal_vseq;
   `uvm_object_utils(tensor_random_max_stress_vseq)
 
   constraint c_random_legal_modes {
-    precision inside {PREC_INT8, PREC_INT16};
+    precision inside {PREC_INT4, PREC_INT8, PREC_INT16};
     post_op inside {POST_NONE, POST_BIAS, POST_RELU, POST_BIAS_RELU};
     sat_mode inside {SAT_WRAP, SAT_SATURATE};
     burst_len inside {[1:16]};

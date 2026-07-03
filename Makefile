@@ -1,0 +1,324 @@
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
+
+###############################################################################
+# Project / Test Configuration
+###############################################################################
+TB_TOP     ?= top_tb
+TESTNAME   ?= base_test
+SEED       ?= 1
+VERB       ?= UVM_MEDIUM
+RUN_TIME   ?= 1s
+BUILD_NAME ?= default
+
+# Keep default runs lightweight. Enable waveform/coverage explicitly for debug
+# or coverage regression.
+COV        ?= 0
+FSDB       ?= 0
+ASSERT     ?= 1
+DEBUG      ?= 0
+
+SIM       ?= sim
+RUN_TAG   ?=
+BUILD_DIR := $(SIM)/build/$(BUILD_NAME)
+RUN_DIR   := $(SIM)/run/$(TESTNAME)_seed_$(SEED)$(RUN_TAG)
+BUILD_LOG_DIR := $(BUILD_DIR)/log
+RUN_LOG_DIR   := $(RUN_DIR)/log
+WAVE_DIR      := $(RUN_DIR)/wave
+COV_DIR       := $(RUN_DIR)/cov.vdb
+SIMV_DIR      := $(BUILD_DIR)/simv
+MERGED_COV_DIR ?= $(SIM)/merged_cov.vdb
+MERGED_COV_REPORT_DIR ?= $(SIM)/merged_cov_report
+COV_WAIVER_EL ?= ./cov_waivers/dve_waivers.el
+REGRESSION_SCRIPT ?= ./script/run_regression.sh
+REGRESSION_SUITE ?= full
+REGRESSION_RUN_TIME ?= $(RUN_TIME)
+SIMV_IMAGE := $(SIMV_DIR)/$(TB_TOP).simv
+SIMV_VDB   := $(SIMV_DIR)/$(TB_TOP).simv.vdb
+
+FILELIST  ?= ./script/filelist.f
+
+# Free-form runtime plusargs, e.g. USER_SIM_OPTS="+FOO=1 +BAR=2".
+USER_SIM_OPTS ?=
+
+###############################################################################
+# SVT VIP / UVM Configuration
+###############################################################################
+VIP_ROOT ?= ../test_vip2018/test_vip2018
+VIP_SRC_DIR := $(VIP_ROOT)/src
+VIP_INC_DIR := $(VIP_ROOT)/include
+SVT_AXI_PKG ?= $(VIP_INC_DIR)/sverilog/svt_axi.uvm.pkg
+
+VCS_HOME ?= /home/wwh/vcs/vcs2018/vcs/O-2018.09-SP2
+
+SVT_INC_DIRS = +incdir+$(VIP_SRC_DIR)/sverilog/vcs \
+               +incdir+$(VIP_INC_DIR)/sverilog     \
+               +incdir+$(VIP_SRC_DIR)/verilog/vcs   \
+               +incdir+$(VIP_INC_DIR)/verilog
+
+UVM_OPTS = -ntb_opts uvm-1.2
+
+###############################################################################
+# Tools
+###############################################################################
+VCS       ?= vcs
+VERDI     ?= verdi
+URG       ?= urg
+DVE       ?= dve
+
+###############################################################################
+# Compile / Runtime Options
+###############################################################################
+TIMESCALE ?= 1ns/1ps
+
+VCS_BASE_OPTS = -full64                 \
+                -sverilog               \
+                -timescale=$(TIMESCALE) \
+                $(UVM_OPTS)             \
+                +define+SVT_UVM_TECHNOLOGY \
+                +define+SYNOPSYS_SV     \
+                +define+UVM_PACKER_MAX_BYTES=1500000 \
+                +define+UVM_DISABLE_AUTO_ITEM_RECORDING \
+                -nc                     \
+                $(SVT_INC_DIRS)         \
+                $(INC_DIR)
+
+# debug_access is required by both VPD ($vcdplus*) and FSDB ($fsdb*) in tb_top.
+# kdb is FSDB-specific; -lca is required by newer VCS versions for -kdb.
+VCS_DBG_OPTS   = -debug_access
+VCS_FSDB_OPTS  = -kdb -lca
+
+VCS_OPTS = $(VCS_BASE_OPTS) $(VCS_DBG_OPTS)
+
+###############################################################################
+# Optional Feature Switches
+###############################################################################
+ifneq ($(ASSERT),0)
+VCS_OPTS += +define+ASSERT_ON
+endif
+
+ifneq ($(DEBUG),0)
+VCS_OPTS += -debug_access+all +define+DEBUG
+endif
+
+ifneq ($(FSDB),0)
+VCS_OPTS += $(VCS_FSDB_OPTS)
+endif
+
+COV_HIER ?= ./cov_waivers/coverage.cfg
+
+COV_METRICS := line+cond+fsm+branch+tgl+assert
+
+ifneq ($(COV),0)
+VCS_OPTS += -cm $(COV_METRICS) \
+            -cm_hier $(COV_HIER)                 \
+            -cm_name $(BUILD_NAME)
+SIM_COV_OPTS = -cm $(COV_METRICS) -cm_dir $(COV_DIR) -cm_name $(BUILD_NAME)
+endif
+
+ifneq ($(FSDB),0)
+SIM_WAVE_OPTS = +FSDB +FSDB_FILE=$(WAVE_DIR)/$(TESTNAME)_seed$(SEED).fsdb
+endif
+
+###############################################################################
+# Runtime Options
+###############################################################################
+SIM_OPTS = +ntb_random_seed=$(SEED)  \
+           +UVM_TESTNAME=$(TESTNAME) \
+           +UVM_VERBOSITY=$(VERB)    \
+           +validation_cfg_filename=./script/env/axi_config.cfg \
+           +vcs+watchdog+time=5ms    \
+           $(USER_SIM_OPTS)
+
+###############################################################################
+# Targets
+###############################################################################
+.PHONY: all prepare_build prepare_run check_elab elab run sim \
+        regression normal_regression corner_regression all_regression cov_regression \
+        verdi merge_cov view_cov \
+        clean clean_run clean_cov clean_reports clean_build clean_misc clean_all help
+
+all: sim
+
+prepare_build:
+	mkdir -p $(BUILD_LOG_DIR) $(SIMV_DIR)
+
+prepare_run:
+	mkdir -p $(RUN_LOG_DIR) $(WAVE_DIR) $(COV_DIR)
+
+check_elab:
+	@if [ ! -x "$(SIMV_IMAGE)" ]; then \
+	  echo "Elaboration output not found: $(SIMV_IMAGE)"; \
+	  echo "Run 'make elab BUILD_NAME=$(BUILD_NAME)' first."; \
+	  exit 1; \
+	fi
+
+elab: prepare_build
+	$(VCS) $(VCS_OPTS)                  \
+	      $(SVT_AXI_PKG)                \
+	      -f $(FILELIST)                \
+	      $(VFILES)                     \
+	      -top $(TB_TOP)                \
+	      -o $(SIMV_IMAGE)              \
+	      -l $(BUILD_LOG_DIR)/compile.log
+
+run: check_elab prepare_run
+	@echo "Running $(TESTNAME) with build '$(BUILD_NAME)'"
+	timeout $(RUN_TIME) $(SIMV_IMAGE)   \
+	      $(SIM_OPTS)                   \
+	      $(SIM_COV_OPTS)               \
+	      $(SIM_WAVE_OPTS)              \
+	      -l $(RUN_LOG_DIR)/run.log
+
+sim: elab run
+
+regression:
+	SEED=$(SEED)                     \
+	RUN_TIME=$(REGRESSION_RUN_TIME) \
+	VERB=$(VERB)                    \
+	TB_TOP=$(TB_TOP)                \
+	FILELIST=$(FILELIST)            \
+	BUILD_NAME=$(BUILD_NAME)        \
+	COV=$(COV)                      \
+	FSDB=$(FSDB)                    \
+	ASSERT=$(ASSERT)                \
+	DEBUG=$(DEBUG)                  \
+	REGRESSION_SUITE=$(REGRESSION_SUITE) \
+	USER_SIM_OPTS="$(USER_SIM_OPTS)" \
+	$(REGRESSION_SCRIPT)
+
+normal_regression:
+	$(MAKE) regression REGRESSION_SUITE=normal
+
+corner_regression:
+	$(MAKE) regression REGRESSION_SUITE=corner
+
+all_regression:
+	$(MAKE) regression REGRESSION_SUITE=all
+
+cov_regression: clean
+	$(MAKE) regression REGRESSION_SUITE=$(REGRESSION_SUITE) COV=1 FSDB=0 ASSERT=$(ASSERT) DEBUG=$(DEBUG)
+	$(MAKE) merge_cov
+
+verdi:
+	$(VERDI) -sv                        \
+	         $(SVT_AXI_PKG)             \
+	         -f $(FILELIST)             \
+	         $(VFILES)                  \
+	         -top $(TB_TOP)             \
+	         -ssf $(WAVE_DIR)/$(TESTNAME)_seed$(SEED).fsdb &
+
+merge_cov:
+	@if [ ! -d "$(SIMV_VDB)" ]; then \
+	  echo "Design coverage database not found: $(SIMV_VDB)"; \
+	  echo "Run 'make elab BUILD_NAME=$(BUILD_NAME)' first."; \
+	  exit 1; \
+	fi
+	@mkdir -p "$(MERGED_COV_REPORT_DIR)"
+	@test_cov_dirs=$$(find $(SIM)/run -maxdepth 2 -type d -name 'cov.vdb' | sort); \
+	if [ -z "$$test_cov_dirs" ]; then \
+	  echo "No test coverage databases found under $(SIM)/run"; \
+	  exit 1; \
+	fi; \
+	urg_args="-dir $(SIMV_VDB)"; \
+	for cov_dir in $$test_cov_dirs; do \
+	  urg_args="$$urg_args -dir $$cov_dir"; \
+	done; \
+	if [ -f "$(COV_HIER)" ]; then \
+	  urg_args="$$urg_args -hier $(COV_HIER)"; \
+	fi; \
+	echo "Merging coverage into $(MERGED_COV_DIR)"; \
+	$(URG) $$urg_args -dbname $(MERGED_COV_DIR) -report $(MERGED_COV_REPORT_DIR)
+
+view_cov:
+	@if [ ! -d "$(MERGED_COV_DIR)" ]; then \
+	  echo "Merged coverage database not found: $(MERGED_COV_DIR)"; \
+	  echo "Run 'make cov_regression' or 'make merge_cov' first."; \
+	  exit 1; \
+	fi
+	@if [ -f "$(COV_WAIVER_EL)" ]; then \
+	  echo "Opening DVE with waiver file: $(COV_WAIVER_EL)"; \
+	  $(DVE) -cov -dir $(MERGED_COV_DIR) -elfile $(COV_WAIVER_EL) & \
+	else \
+	  echo "Opening DVE without waiver file. Expected path: $(COV_WAIVER_EL)"; \
+	  $(DVE) -cov -dir $(MERGED_COV_DIR) & \
+	fi
+
+# -----------------------------------------------------------------------------
+# Clean targets
+# -----------------------------------------------------------------------------
+# clean_run     — remove per-test simulation outputs only.
+# clean_cov     — remove merged coverage output.
+# clean_reports — remove coverage reports.
+# clean_build   — remove compile/elaboration artifacts.
+# clean_misc    — remove stray VCS/Verdi/DVE files.
+# clean         — default cleanup for daily use; keeps the shared build.
+# clean_all     — full cleanup, including build and stray tool files.
+# -----------------------------------------------------------------------------
+
+# VCS compile intermediates that can appear at tb/ or in subdir sandboxes
+STRAY_COMPILE = csrc *.daidir vc_hdrs.h
+
+# VCS / Verdi / DVE runtime litter (logs, configs, waveform/cov dbs, GUI state)
+STRAY_RUNTIME = ucli.key DVEfiles verdiLog novas.conf novas.rc novas_dump.log \
+                novas.*.log inter.vpd *.vpd *.fsdb *.vdb cm.log tr_db.log
+
+clean_run:
+	rm -rf $(SIM)/run
+
+clean_cov:
+	rm -rf $(MERGED_COV_DIR)
+
+clean_reports:
+	rm -rf $(MERGED_COV_REPORT_DIR) urgReport
+
+clean_build:
+	rm -rf $(SIM)/build $(STRAY_COMPILE)
+
+clean_misc:
+	rm -rf $(SIM)/DVEfiles $(SIM)/verdiLog $(SIM)/novas.*
+	rm -rf $(STRAY_RUNTIME)
+
+clean: clean_run clean_cov clean_reports
+
+clean_all: clean clean_build clean_misc
+	rm -rf $(SIM)
+	rm -rf $(STRAY_COMPILE) $(STRAY_RUNTIME) DVEfiles verdiLog novas*
+
+help:
+	@echo "Usage examples:"
+	@echo "  make sim TESTNAME=base_test SEED=1"
+	@echo "  make sim TESTNAME=base_test VIP_ROOT=../test_vip2018/test_vip2018"
+	@echo "  make elab BUILD_NAME=regression"
+	@echo "  make run TESTNAME=base_test SEED=1 BUILD_NAME=regression"
+	@echo "  make cov_regression BUILD_NAME=regression_cov REGRESSION_RUN_TIME=10s"
+	@echo "  make corner_regression BUILD_NAME=corner_cov COV=1 FSDB=0"
+	@echo "  make cov_regression REGRESSION_SUITE=all BUILD_NAME=full_cov REGRESSION_RUN_TIME=10s"
+	@echo "  make view_cov MERGED_COV_DIR=sim/merged_cov.vdb COV_WAIVER_EL=./cov_waivers/dve_waivers.el"
+	@echo "  make regression BUILD_NAME=regression REGRESSION_RUN_TIME=10s"
+	@echo "  make merge_cov MERGED_COV_DIR=sim/merged_cov.vdb"
+	@echo "  make sim TESTNAME=base_test SEED=1 DEBUG=1"
+	@echo ""
+	@echo "Targets:"
+	@echo "  elab               Compile and elaborate into sim/build/<BUILD_NAME>"
+	@echo "  run                Run existing simv for TESTNAME after checking elab output"
+	@echo "  sim/all            Build and run"
+	@echo "  regression         Run run_regression.sh with REGRESSION_SUITE=normal|corner|all"
+	@echo "  normal_regression  Run legal spec-compliant regression"
+	@echo "  corner_regression  Run abnormal/coverage-closure scenarios"
+	@echo "  all_regression     Run normal suite, then corner scenarios"
+	@echo "  cov_regression     Clean run/cov/report outputs, run selected coverage suite, then merge"
+	@echo "  verdi              Open waveform in Verdi"
+	@echo "  merge_cov          Merge sim/run/*/cov.vdb into merged_cov.vdb and write HTML report"
+	@echo "  view_cov           Open merged coverage in DVE; auto-load COV_WAIVER_EL if present"
+	@echo "  clean              Clean run outputs, merged coverage, and reports"
+	@echo "  clean_run          Clean per-test simulation outputs only"
+	@echo "  clean_cov          Clean merged coverage database"
+	@echo "  clean_reports      Clean coverage reports"
+	@echo "  clean_build        Clean compile / elaboration artifacts"
+	@echo "  clean_misc         Clean stray VCS/Verdi/DVE files"
+	@echo "  clean_all          Wipe sim/ and all generated tool artifacts"
+	@echo ""
+	@echo "Defaults:"
+	@echo "  COV=0 FSDB=0 ASSERT=1 DEBUG=0 REGRESSION_SUITE=full"
+	@echo "  VIP_ROOT=$(VIP_ROOT)"

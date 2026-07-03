@@ -1,0 +1,19 @@
+[options]
+mode prove
+depth 6
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv tensor_pkg_yosys.sv
+read_verilog -formal -sv fifo.sv
+read_verilog -formal -sv dma_descriptor_fifo_yosys.sv
+read_verilog -formal -sv dma_descriptor_fifo_formal.sv
+prep -top dma_descriptor_fifo_formal
+
+[files]
+tensor_pkg_yosys.sv
+../rtl/common/fifo.sv
+compat/dma_descriptor_fifo_yosys.sv
+dma_descriptor_fifo_formal.sv

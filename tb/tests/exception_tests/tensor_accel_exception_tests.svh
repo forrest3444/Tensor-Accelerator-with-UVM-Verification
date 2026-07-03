@@ -9,6 +9,7 @@
 `include "exception_tests/tensor_err_axi_read_bias_error_test.sv"
 `include "exception_tests/tensor_err_axi_write_slverr_test.sv"
 `include "exception_tests/tensor_err_axi_write_mid_row_error_test.sv"
+`include "exception_tests/tensor_err_command_fsm_error_arc_test.sv"
 `include "exception_tests/tensor_err_command_while_busy_test.sv"
 `include "exception_tests/tensor_err_start_while_done_test.sv"
 `include "exception_tests/tensor_err_burst_len_zero_test.sv"

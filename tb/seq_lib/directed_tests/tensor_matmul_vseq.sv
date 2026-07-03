@@ -162,11 +162,9 @@ class tensor_matmul_vseq extends base_vseq;
                                     const ref int signed b_data[]);
     bit [7:0] a_bytes[];
     bit [7:0] b_bytes[];
-    int unsigned elem_b;
     int unsigned panel_row_stride;
 
-    elem_b = elem_bytes_local();
-    panel_row_stride = align8_local(k_size * elem_b);
+    panel_row_stride = align8_local(row_bytes_local(k_size));
     a_bytes = new[m_size * panel_row_stride];
     b_bytes = new[n_size * panel_row_stride];
 
@@ -183,8 +181,8 @@ class tensor_matmul_vseq extends base_vseq;
         int unsigned dst_byte;
 
         src_idx = (row * k_size) + kk;
-        dst_byte = (row * panel_row_stride) + (kk * elem_b);
-        pack_elem_le(a_data[src_idx], a_bytes, dst_byte);
+        dst_byte = (row * panel_row_stride) + elem_byte_offset(kk);
+        pack_elem_le(a_data[src_idx], a_bytes, dst_byte, kk);
       end
     end
     for (int col = 0; col < n_size; col++) begin
@@ -193,8 +191,8 @@ class tensor_matmul_vseq extends base_vseq;
         int unsigned dst_byte;
 
         src_idx = (kk * n_size) + col;
-        dst_byte = (col * panel_row_stride) + (kk * elem_b);
-        pack_elem_le(b_data[src_idx], b_bytes, dst_byte);
+        dst_byte = (col * panel_row_stride) + elem_byte_offset(kk);
+        pack_elem_le(b_data[src_idx], b_bytes, dst_byte, kk);
       end
     end
 
@@ -291,6 +289,7 @@ class tensor_matmul_vseq extends base_vseq;
                                             input int unsigned row_mul,
                                             input int unsigned col_mul);
     return (precision == PREC_INT16) ? int16_pattern(row, col, row_mul, col_mul) :
+           (precision == PREC_INT4)  ? int4_pattern(row, col, row_mul, col_mul) :
                                        int8_pattern(row, col, row_mul, col_mul);
   endfunction
 
@@ -301,6 +300,16 @@ class tensor_matmul_vseq extends base_vseq;
     int unsigned raw;
 
     raw = ((row * row_mul) + (col * col_mul) + (row ^ col)) % 9;
+    return int'(raw) - 4;
+  endfunction
+
+  virtual function int signed int4_pattern(input int unsigned row,
+                                           input int unsigned col,
+                                           input int unsigned row_mul,
+                                           input int unsigned col_mul);
+    int unsigned raw;
+
+    raw = ((row * row_mul) + (col * col_mul) + (row ^ col)) % 8;
     return int'(raw) - 4;
   endfunction
 
@@ -324,20 +333,37 @@ class tensor_matmul_vseq extends base_vseq;
 
   virtual function void pack_elem_le(int signed value,
                                      ref bit [7:0] bytes[],
-                                     input int unsigned byte_idx);
+                                     input int unsigned byte_idx,
+                                     input int unsigned elem_idx);
     bit signed [15:0] half_data;
+    bit [3:0] nibble_data;
 
     if (precision == PREC_INT16) begin
       half_data = value[15:0];
       bytes[byte_idx + 0] = half_data[7:0];
       bytes[byte_idx + 1] = half_data[15:8];
+    end else if (precision == PREC_INT4) begin
+      nibble_data = value[3:0];
+      if ((elem_idx & 1) == 0) begin
+        bytes[byte_idx][3:0] = nibble_data;
+      end else begin
+        bytes[byte_idx][7:4] = nibble_data;
+      end
     end else begin
       bytes[byte_idx] = int8_to_byte(value);
     end
   endfunction
 
-  virtual function int unsigned elem_bytes_local();
-    return (precision == PREC_INT16) ? 2 : 1;
+  virtual function int unsigned row_bytes_local(input int unsigned elem_count);
+    return (precision == PREC_INT16) ? (elem_count * 2) :
+           (precision == PREC_INT4)  ? ((elem_count + 1) / 2) :
+                                       elem_count;
+  endfunction
+
+  virtual function int unsigned elem_byte_offset(input int unsigned elem_idx);
+    return (precision == PREC_INT16) ? (elem_idx * 2) :
+           (precision == PREC_INT4)  ? (elem_idx / 2) :
+                                       elem_idx;
   endfunction
 
   virtual function int unsigned align8_local(input int unsigned value);

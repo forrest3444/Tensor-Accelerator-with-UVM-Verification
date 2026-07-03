@@ -1,0 +1,15 @@
+[options]
+mode bmc
+depth 10
+
+[engines]
+smtbmc yices
+
+[script]
+read_verilog -formal -sv store_fsm.sv
+read_verilog -formal -sv store_fsm_formal.sv
+prep -top store_fsm_formal
+
+[files]
+../rtl/control/store_fsm.sv
+store_fsm_formal.sv

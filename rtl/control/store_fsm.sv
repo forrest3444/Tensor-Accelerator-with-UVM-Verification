@@ -1,7 +1,8 @@
 module store_fsm #(
   parameter int TILE_M = 4,
   parameter int ROW_INDEX_WIDTH = (TILE_M <= 2) ? 1 : $clog2(TILE_M),
-  parameter int ROW_COUNT_WIDTH = $clog2(TILE_M + 1)
+  parameter int ROW_COUNT_WIDTH = $clog2(TILE_M + 1),
+  parameter int MTILE_INDEX_WIDTH = 1
 ) (
   input  logic clk,
   input  logic rst_n,
@@ -13,6 +14,7 @@ module store_fsm #(
   input  logic desc_ready_i,
   input  logic writer_done_i,
   input  logic store_buffer_i,
+  input  logic [MTILE_INDEX_WIDTH-1:0] tile_m_i,
   input  logic [31:0] c_ext_offset_i,
   input  logic [31:0] tile_rows_i,
   input  logic [31:0] c_row_bytes_i,
@@ -24,11 +26,13 @@ module store_fsm #(
   output logic [31:0] active_c_row_bytes_o,
   output logic [ROW_COUNT_WIDTH-1:0] active_row_count_o,
   output logic [TILE_M-1:0] active_row_ready_o,
-  output logic active_buffer_o
+  output logic active_buffer_o,
+  output logic [MTILE_INDEX_WIDTH-1:0] active_tile_m_o
 );
   logic active_q;
   logic desc_pushed_q;
   logic store_buffer_q;
+  logic [MTILE_INDEX_WIDTH-1:0] tile_m_q;
   logic [31:0] c_ext_offset_q;
   logic [31:0] tile_rows_q;
   logic [31:0] c_row_bytes_q;
@@ -42,6 +46,7 @@ module store_fsm #(
   assign active_row_count_o = ROW_COUNT_WIDTH'(active_tile_rows);
   assign active_row_ready_o = row_ready_q;
   assign active_buffer_o = start_i ? store_buffer_i : store_buffer_q;
+  assign active_tile_m_o = start_i ? tile_m_i : tile_m_q;
   assign desc_push_o = active_q && !desc_pushed_q && row_ready_q[0] && desc_ready_i;
   assign active_o = active_q;
   assign done_o = active_q && writer_done_i;
@@ -52,6 +57,7 @@ module store_fsm #(
       active_q <= 1'b0;
       desc_pushed_q <= 1'b0;
       store_buffer_q <= 1'b0;
+      tile_m_q <= '0;
       c_ext_offset_q <= 32'd0;
       tile_rows_q <= 32'd0;
       c_row_bytes_q <= 32'd0;
@@ -61,6 +67,7 @@ module store_fsm #(
       active_q <= 1'b0;
       desc_pushed_q <= 1'b0;
       store_buffer_q <= 1'b0;
+      tile_m_q <= '0;
       c_ext_offset_q <= 32'd0;
       tile_rows_q <= 32'd0;
       c_row_bytes_q <= 32'd0;
@@ -71,6 +78,7 @@ module store_fsm #(
         active_q <= 1'b1;
         desc_pushed_q <= 1'b0;
         store_buffer_q <= store_buffer_i;
+        tile_m_q <= tile_m_i;
         c_ext_offset_q <= c_ext_offset_i;
         tile_rows_q <= tile_rows_i;
         c_row_bytes_q <= c_row_bytes_i;

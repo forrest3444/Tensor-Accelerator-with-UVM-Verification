@@ -7,8 +7,8 @@ module region_checker
   parameter int TILE_N = tensor_pkg::ARRAY_N,
   parameter int OUT_BYTES = 4,
   parameter int BIAS_BYTES = 4,
-  parameter int SPAD_BUFFER_BYTES = 4096,
-  parameter int SPAD_FIXED_BYTES = 4 * 4096
+  parameter int SPAD_BUFFER_BYTES = 1024,
+  parameter int SPAD_FIXED_BYTES = 4 * 1024
 ) (
   input  logic       clk,
   input  logic       rst_n,
@@ -38,7 +38,9 @@ module region_checker
     matrix_ok = (cfg_q.m_size >= 1 && cfg_q.m_size <= MAX_DIM &&
                  cfg_q.n_size >= 1 && cfg_q.n_size <= MAX_DIM &&
                  cfg_q.k_size >= 1 && cfg_q.k_size <= MAX_DIM);
-    precision_ok = (cfg_q.precision == PREC_INT8) || (cfg_q.precision == PREC_INT16);
+    precision_ok = (cfg_q.precision == PREC_INT8) ||
+                   (cfg_q.precision == PREC_INT16) ||
+                   (cfg_q.precision == PREC_INT4);
     align_ok = ((cfg_q.a_base % beat_bytes) == 0) &&
                ((cfg_q.b_base % beat_bytes) == 0) &&
                (cfg_q.c_base[1:0] == 2'b00) &&
