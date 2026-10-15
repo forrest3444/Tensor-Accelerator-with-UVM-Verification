@@ -181,7 +181,7 @@
 * 配置接口：AXI-Lite slave。
 * 数据读取接口：AXI4 read master，固定 `ARID=0`，`ARBURST=INCR`。
 * 数据写回接口：AXI4 write master，固定 `AWID=0`，`AWBURST=INCR`。
-* 内部存储接口：scratchpad 为 32-bit word 存储，不向顶层暴露。
+* 内部 load staging 接口：scratchpad 为 32-bit word 存储，不向顶层暴露。当前 RTL 中 `scratchpad_ctrl` 是 DMA-only adapter，compute 不再仲裁访问该存储。
 * 中断接口：`irq` 为电平型状态输出，由 `IRQ_STATUS` 或 `CTRL` clear bit 清除。
 
 ### Interface Rules
@@ -384,7 +384,7 @@ pop_accept  = pop_i  && !empty_o;
 
 | 存储 | 类型 | 深度/容量 | 位宽 | 用途 |
 | ---- | ---- | --------: | ---: | ---- |
-| `scratchpad` | SRAM-like | 默认 4 KiB | 32 | DMA 写入 A/B/Bias 的统一存储接口 |
+| `scratchpad` | SRAM-like | 默认 4 KiB | 32 | A/B/Bias panel 捕获前的 DMA load staging |
 | A panel bank 0/1 | 寄存器阵列 | `TILE_M * MAX_DIM` each | 16 | A ping-pong compute panel |
 | B panel | 寄存器阵列 | `MAX_DIM * TILE_N` | 16 | B 条带复用 panel |
 | Bias vector | 寄存器阵列 | `TILE_N` | 32 | bias 条带 |

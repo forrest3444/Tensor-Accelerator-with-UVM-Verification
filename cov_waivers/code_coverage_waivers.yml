@@ -1,90 +1,175 @@
-# Code coverage waivers.
-# Source of truth for review — all waivers must be recorded here.
-# Tool-specific exports (DVE .el, URG exclude) are derived from this file.
-
-# Naming convention: WVR-CODE-{MODULE}-{NNN}
-#   MODULE:  module abbreviation per tb/doc/bug_log.md
-#   NNN:     sequence number, zero-padded
-
-# Fields:
-#   id                — unique waiver ID
-#   vtrack_id         — coverage tracking ID (linking to vtrack)
-#   status            — proposed | approved | rejected | superseded
-#   coverage_type     — line | condition | fsm | branch | toggle
-#   source_file       — path relative to project root
-#   report            — URG report path + section (optional)
-#   scope             — module and instance name
-#   location          — line number, expression, uncovered condition
-#   title             — short summary
-#   rationale         — detailed justification
-#   risk              — low | medium | high
-#   expiry            — conditions for revisit
-#   verification      — how the waiver was reviewed/confirmed
+# Code coverage waiver review metadata.
+# Authoritative exclusion selections: cov_waivers/dve_waivers.el.
+# Active entries mirror .el selections; superseded entries are historical only.
+# proposed preserves review status and does not claim formal unreachability.
 
 waivers:
-  - id: WVR-CODE-FSM-001
-    vtrack_id: VTR-FSM-001
-    status: proposed
-    coverage_type: fsm
-    source_file: rtl/control/command_fsm.sv
-    scope:
-      module: command_fsm
-      instance: tb_top.dut.u_command_fsm
-    location:
-      transitions:
-        - ST_CHECK_CONFIG -> ST_IDLE
-        - ST_COMPUTE_TILE -> ST_IDLE
-        - ST_PIPE_ADVANCE -> ST_IDLE
-        - ST_PIPE_WAIT_COMPUTE -> ST_IDLE
-        - ST_PIPE_WAIT_LOAD -> ST_IDLE
-        - ST_PREPARE_TILE -> ST_IDLE
-        - ST_STORE_TILE -> ST_IDLE
-        - ST_WAIT_FINAL_STORE -> ST_IDLE
-        - ST_WAIT_STORE_SLOT -> ST_IDLE
-      uncovered_detail: >
-        None of these states has an always_comb path to ST_IDLE.
-        The only functional →ST_IDLE transitions are ST_DONE→ST_IDLE
-        (clear_done_i) and ST_ERROR→ST_IDLE (clear_error_i). The nine
-        listed transitions can only be reached via rst_n=0 or
-        soft_reset_i=1 in the always_ff block, which bypasses state_d
-        entirely. FSM coverage tracks state_q→state_d, so reset-only
-        transitions are never observed.
-    title: "command_fsm: 9 reset-only transitions to ST_IDLE"
-    rationale: >
-      always_ff assigns state_q <= ST_IDLE on !rst_n or soft_reset_i,
-      without going through the combinational state_d logic. Of the 14
-      non-IDLE states, only ST_DONE and ST_ERROR have a functional
-      path to ST_IDLE via state_d in the always_comb case block. The
-      other states all transition to other active states or ST_ERROR.
-      The default case (defensive one-hot encoding) also maps to
-      ST_IDLE but is unreachable under unique case semantics. These
-      transitions are not functional stimulus targets.
-    risk: low
-    expiry: "Revisit if command_fsm adds abort/flush/cancel semantics that return to IDLE from active states."
-    verification: "Static RTL review: inspected always_comb case block for each state. Confirmed no state_d=ST_IDLE assignment outside ST_DONE/ST_ERROR/default."
+- id: WVR-CODE-FSM-001
+  vtrack_id: VTR-FSM-001
+  status: proposed
+  coverage_type: fsm
+  source_file: rtl/control/command_fsm.sv
+  scope:
+    module: command_fsm
+    instance: top_tb.u_dut.u_command_fsm
+  location:
+    transitions:
+    - ST_CHECK_CONFIG -> ST_IDLE
+    - ST_COMPUTE_TILE -> ST_IDLE
+    - ST_PIPE_WAIT_COMPUTE -> ST_IDLE
+    - ST_PIPE_WAIT_LOAD -> ST_IDLE
+    - ST_PREPARE_TILE -> ST_IDLE
+    - ST_STORE_TILE -> ST_IDLE
+    - ST_WAIT_FINAL_STORE -> ST_IDLE
+    uncovered_detail: Seven reset-only transitions explicitly selected in dve_waivers.el. The two excluded
+      source states are recorded separately.
+  title: 'command_fsm: 7 explicitly excluded reset-only transitions to ST_IDLE'
+  rationale: These seven active states have no combinational transition to ST_IDLE; reset or soft reset
+    assigns state_q directly. Exact exclusion scope follows dve_waivers.el.
+  risk: low
+  expiry: Revisit if command_fsm adds abort/flush/cancel semantics that return to IDLE from active states.
+  verification: 'Static RTL review: inspected always_comb case block for each state. Confirmed no state_d=ST_IDLE
+    assignment outside ST_DONE/ST_ERROR/default.'
+- id: WVR-CODE-FSM-002
+  vtrack_id: VTR-FSM-002
+  status: superseded
+  coverage_type: fsm
+  source_file: rtl/control/command_fsm.sv
+  scope:
+    module: command_fsm
+    instance: tb_top.dut.u_command_fsm
+  location:
+    transition: default -> ST_IDLE
+    uncovered_detail: Historical proposal only; no matching exclusion in dve_waivers.el.
+  title: 'command_fsm: unreachable default arm in unique case'
+  rationale: Historical proposal for the defensive default arm. A unique case statement alone does not
+    prove legal-state reachability; this proposal is not represented in the authoritative .el file.
+  risk: low
+  expiry: Revisit if state encoding changes from one-hot or if unique case is replaced with priority case.
+  verification: Not present in authoritative dve_waivers.el; retained as historical proposal, not an active
+    exclusion. No formal unreachability proof is claimed.
+- id: WVR-CODE-DMAW-001
+  vtrack_id: VTR-DMAW-001
+  status: proposed
+  coverage_type: fsm
+  source_file: rtl/dma/axi_write_dma.sv
+  scope:
+    module: axi_write_dma
+    instance: top_tb.u_dut.u_tensor_writer.u_axi_write_dma
+  location:
+    transitions:
+    - S_START -> S_IDLE
+    - S_SPLIT -> S_IDLE
+    - S_PLAN -> S_IDLE
+    - S_AW -> S_IDLE
+    - S_READ_REQ -> S_IDLE
+    - S_READ_DATA -> S_IDLE
+    - S_W -> S_IDLE
+    - S_B -> S_IDLE
+    - S_B_RESP -> S_IDLE
+    uncovered_detail: 'Only S_DONE has a functional state_d=S_IDLE path in the always_comb case block
+      (S_DONE: state_d = S_IDLE). All other states transition to other active states or S_DONE. The nine
+      listed transitions can only be reached via rst_n=0 in the always_ff block, bypassing state_d entirely.
 
-  - id: WVR-CODE-FSM-002
-    vtrack_id: VTR-FSM-002
-    status: proposed
-    coverage_type: fsm
-    source_file: rtl/control/command_fsm.sv
-    scope:
-      module: command_fsm
-      instance: tb_top.dut.u_command_fsm
-    location:
-      transition: default -> ST_IDLE
-      uncovered_detail: >
-        The default arm of unique case (state_d = ST_IDLE) is
-        unreachable due to one-hot encoding: the case expression is
-        state_q which is guaranteed to match exactly one case item
-        because it is driven from the same one-hot enum. unique case
-        formal semantics make default unreachable.
-    title: "command_fsm: unreachable default arm in unique case"
-    rationale: >
-      One-hot encoded state_e with unique case semantics guarantees
-      that state_q matches exactly one case item. The default arm
-      exists as a defensive coding practice but can never be entered.
-      Formal tools can prove unreachability.
-    risk: low
-    expiry: "Revisit if state encoding changes from one-hot or if unique case is replaced with priority case."
-    verification: "Static RTL review: one-hot enum with 15-bit encoding + unique case semantics."
+      '
+  title: 'axi_write_dma: 9 non-DONE states -> S_IDLE are reset-only'
+  rationale: 'In the always_comb case block, only S_DONE assigns state_d=S_IDLE. All other states have
+    functional transitions to S_START, S_SPLIT, S_PLAN, S_AW, S_READ_REQ, S_READ_DATA, S_W, S_B, S_B_RESP,
+    or S_DONE. The always_ff block forces state_q<=S_IDLE on !rst_n without going through state_d, making
+    these transitions observable only as reset paths, not functional stimuli.
+
+    '
+  risk: low
+  expiry: Revisit if axi_write_dma adds abort/flush semantics returning to IDLE from active states.
+  verification: 'Static RTL review: inspected always_comb case block. Confirmed state_d=S_IDLE only in
+    S_DONE and default.'
+- id: WVR-CODE-FSM-003
+  vtrack_id: VTR-FSM-003
+  status: proposed
+  coverage_type: fsm
+  source_file: rtl/control/command_fsm.sv
+  scope:
+    module: command_fsm
+    instance: top_tb.u_dut.u_command_fsm
+  location:
+    states:
+    - ST_PIPE_ADVANCE
+  title: 'command_fsm: exclude ST_PIPE_ADVANCE state'
+  rationale: State explicitly selected in authoritative .el. Static review finds no normal incoming assignment
+    to this state. Other state exclusions are tracked independently.
+  risk: low
+  expiry: Revisit when RTL or authoritative .el selections change.
+  verification: Synchronized from cov_waivers/dve_waivers.el on 2026-10-15; selection does not imply formal
+    unreachability or completed waiver approval.
+- id: WVR-CODE-FSM-004
+  vtrack_id: VTR-FSM-004
+  status: proposed
+  coverage_type: fsm
+  source_file: rtl/control/command_fsm.sv
+  scope:
+    module: command_fsm
+    instance: top_tb.u_dut.u_command_fsm
+  location:
+    states:
+    - ST_WAIT_STORE_SLOT
+  title: 'command_fsm: exclude ST_WAIT_STORE_SLOT state'
+  rationale: Preserve the authoritative .el selection. RTL has a functional entry when store_required_i
+    && store_busy_i && !post_process_active_i; this is not asserted to be unreachable.
+  risk: medium
+  expiry: Revisit when RTL or authoritative .el selections change.
+  verification: Synchronized from cov_waivers/dve_waivers.el on 2026-10-15; selection does not imply formal
+    unreachability or completed waiver approval.
+- id: WVR-CODE-LOAD-001
+  vtrack_id: VTR-LOAD-001
+  status: proposed
+  coverage_type: fsm
+  source_file: rtl/control/load_scheduler.sv
+  scope:
+    module: load_scheduler
+    instance: top_tb.u_dut.u_load_scheduler
+  location:
+    states:
+    - LS_IDLE
+  title: 'load_scheduler: exclude LS_IDLE state'
+  rationale: Preserve the authoritative .el selection. LS_IDLE is a reachable reset and functional idle
+    state, already covered in the historical report; no unreachability claim is made.
+  risk: medium
+  expiry: Revisit when RTL or authoritative .el selections change.
+  verification: Synchronized from cov_waivers/dve_waivers.el on 2026-10-15; selection does not imply formal
+    unreachability or completed waiver approval.
+- id: WVR-CODE-DMAR-001
+  vtrack_id: VTR-DMAR-001
+  status: proposed
+  coverage_type: fsm
+  source_file: rtl/dma/axi_read_dma.sv
+  scope:
+    module: axi_read_dma
+    instance: top_tb.u_dut.u_tensor_loader.u_axi_read_dma
+  location:
+    transitions:
+    - S_AR -> S_IDLE
+  title: 'axi_read_dma: exclude reset-only S_AR to S_IDLE transition'
+  rationale: S_AR transitions functionally to S_R or itself. Reset forces S_IDLE directly; exact selection
+    follows authoritative .el.
+  risk: low
+  expiry: Revisit when RTL or authoritative .el selections change.
+  verification: Synchronized from cov_waivers/dve_waivers.el on 2026-10-15; selection does not imply formal
+    unreachability or completed waiver approval.
+- id: WVR-CODE-SPAD-001
+  vtrack_id: VTR-SPAD-001
+  status: proposed
+  coverage_type: instance
+  source_file: rtl/memory/scratchpad_ctrl.sv
+  scope:
+    module: scratchpad_ctrl
+    instance: top_tb.u_dut.u_scratchpad_ctrl
+  location:
+    instance_marker_only: true
+    checksum: '2785729777'
+  title: 'scratchpad_ctrl: preserve .el instance marker'
+  rationale: The .el contains a checksum and INSTANCE marker without explicit state or transition objects.
+    Record it verbatim; no blanket exclusion semantics are inferred.
+  risk: medium
+  expiry: Re-export from DVE if the scratchpad_ctrl checksum changes.
+  verification: Marker synchronized from authoritative .el; applicability to the recompiled RTL must be
+    checked by coverage tooling.

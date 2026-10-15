@@ -181,7 +181,7 @@ Simulation/verification builds expose additional `ifndef SYNTHESIS` ports: `tb_c
 * Configuration interface: AXI-Lite slave.
 * Read data interface: AXI4 read master, fixed `ARID=0`, `ARBURST=INCR`.
 * Write data interface: AXI4 write master, fixed `AWID=0`, `AWBURST=INCR`.
-* Internal storage interface: 32-bit scratchpad, not exposed at top level.
+* Internal load staging interface: 32-bit scratchpad, not exposed at top level. `scratchpad_ctrl` is a DMA-only adapter in the current RTL; compute does not arbitrate for this memory.
 * Interrupt interface: `irq` is a level-style status output cleared by `IRQ_STATUS` or `CTRL` clear bits.
 
 ### Interface Rules
@@ -384,7 +384,7 @@ pop_accept  = pop_i  && !empty_o;
 
 | Storage | Type | Depth/capacity | Width | Purpose |
 | ------- | ---- | -------------: | ----: | ------- |
-| `scratchpad` | SRAM-like | default 4 KiB | 32 | Unified storage interface for DMA-loaded A/B/Bias |
+| `scratchpad` | SRAM-like | default 4 KiB | 32 | DMA load staging for A/B/Bias before panel capture |
 | A panel bank 0/1 | Register array | `TILE_M * MAX_DIM` each | 16 | A ping-pong compute panel |
 | B panel | Register array | `MAX_DIM * TILE_N` | 16 | Reused B stripe panel |
 | Bias vector | Register array | `TILE_N` | 32 | Bias stripe |
